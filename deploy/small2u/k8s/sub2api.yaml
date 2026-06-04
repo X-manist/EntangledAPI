@@ -1,0 +1,332 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: sub2api
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: sub2api
+spec:
+  selector:
+    app: postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: sub2api
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+        - key: node.kubernetes.io/disk-pressure
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5432
+              name: postgres
+          env:
+            - name: POSTGRES_USER
+              value: sub2api
+            - name: POSTGRES_DB
+              value: sub2api
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: sub2api-secrets
+                  key: POSTGRES_PASSWORD
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            - name: TZ
+              value: Asia/Shanghai
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U sub2api -d sub2api
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - pg_isready -U sub2api -d sub2api
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: postgres-data
+          hostPath:
+            path: /root/sandboxes/sub2api/data/postgres
+            type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: sub2api
+spec:
+  selector:
+    app: redis
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: 6379
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: sub2api
+spec:
+  serviceName: redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+        - key: node.kubernetes.io/disk-pressure
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 6379
+              name: redis
+          command:
+            - sh
+            - -c
+            - redis-server --save 60 1 --appendonly yes --appendfsync everysec
+          readinessProbe:
+            exec:
+              command:
+                - redis-cli
+                - ping
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+          livenessProbe:
+            exec:
+              command:
+                - redis-cli
+                - ping
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+      volumes:
+        - name: redis-data
+          hostPath:
+            path: /root/sandboxes/sub2api/data/redis
+            type: DirectoryOrCreate
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sub2api
+  namespace: sub2api
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: sub2api
+  template:
+    metadata:
+      labels:
+        app: sub2api
+    spec:
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+        - key: node.kubernetes.io/disk-pressure
+          operator: Exists
+          effect: NoSchedule
+      containers:
+        - name: sub2api
+          image: ghcr.io/wei-shaw/sub2api:latest
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: AUTO_SETUP
+              value: "true"
+            - name: DATA_DIR
+              value: /app/data
+            - name: SERVER_HOST
+              value: 127.0.0.1
+            - name: SERVER_PORT
+              value: "18080"
+            - name: SERVER_MODE
+              value: release
+            - name: RUN_MODE
+              value: simple
+            - name: TZ
+              value: Asia/Shanghai
+            - name: DATABASE_HOST
+              value: postgres.sub2api.svc.cluster.local
+            - name: DATABASE_PORT
+              value: "5432"
+            - name: DATABASE_USER
+              value: sub2api
+            - name: DATABASE_DBNAME
+              value: sub2api
+            - name: DATABASE_SSLMODE
+              value: disable
+            - name: DATABASE_MAX_OPEN_CONNS
+              value: "20"
+            - name: DATABASE_MAX_IDLE_CONNS
+              value: "10"
+            - name: DATABASE_CONN_MAX_LIFETIME_MINUTES
+              value: "30"
+            - name: DATABASE_CONN_MAX_IDLE_TIME_MINUTES
+              value: "5"
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: sub2api-secrets
+                  key: POSTGRES_PASSWORD
+            - name: REDIS_HOST
+              value: redis.sub2api.svc.cluster.local
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_PASSWORD
+              value: ""
+            - name: REDIS_DB
+              value: "0"
+            - name: REDIS_POOL_SIZE
+              value: "128"
+            - name: REDIS_MIN_IDLE_CONNS
+              value: "10"
+            - name: REDIS_ENABLE_TLS
+              value: "false"
+            - name: ADMIN_EMAIL
+              value: admin@debinxiang.top
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: sub2api-secrets
+                  key: ADMIN_PASSWORD
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: sub2api-secrets
+                  key: JWT_SECRET
+            - name: JWT_EXPIRE_HOUR
+              value: "24"
+            - name: TOTP_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: sub2api-secrets
+                  key: TOTP_ENCRYPTION_KEY
+            - name: SECURITY_URL_ALLOWLIST_ENABLED
+              value: "false"
+            - name: SECURITY_URL_ALLOWLIST_ALLOW_INSECURE_HTTP
+              value: "false"
+            - name: SECURITY_URL_ALLOWLIST_ALLOW_PRIVATE_HOSTS
+              value: "false"
+            - name: LOG_LEVEL
+              value: info
+            - name: LOG_FORMAT
+              value: json
+            - name: LOG_OUTPUT_TO_STDOUT
+              value: "true"
+            - name: LOG_OUTPUT_TO_FILE
+              value: "false"
+            - name: UPDATE_PROXY_URL
+              value: ""
+          readinessProbe:
+            httpGet:
+              host: 127.0.0.1
+              path: /health
+              port: 18080
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              host: 127.0.0.1
+              path: /health
+              port: 18080
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          volumeMounts:
+            - name: sub2api-data
+              mountPath: /app/data
+      volumes:
+        - name: sub2api-data
+          hostPath:
+            path: /root/sandboxes/sub2api/data/app
+            type: DirectoryOrCreate
