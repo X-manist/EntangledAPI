@@ -313,11 +313,12 @@ Requires your own OAuth client credentials.
 
 ```bash
 GEMINI_OAUTH_CLIENT_ID=your-client-id.apps.googleusercontent.com
-GEMINI_OAUTH_CLIENT_SECRET=google-oauth-client-secret
+GEMINI_OAUTH_CLIENT_SECRET=your-google-oauth-client-secret
 
 # 可选：如需使用 Gemini CLI 内置 OAuth Client（Code Assist / Google One）
-# 安全说明：本仓库不会内置该 client_secret，请在运行环境通过环境变量注入。
-# GEMINI_CLI_OAUTH_CLIENT_SECRET=google-oauth-client-secret
+# 安全说明：本仓库不会内置该 OAuth client，请在运行环境通过环境变量注入。
+# GEMINI_CLI_OAUTH_CLIENT_ID=your-gemini-cli-oauth-client-id
+# GEMINI_CLI_OAUTH_CLIENT_SECRET=your-gemini-cli-oauth-client-secret
 ```
 
 **Step 3: Create Account in Admin UI**
@@ -442,12 +443,13 @@ If you need to use AI Studio OAuth for Gemini accounts, add the OAuth client cre
 2. Add your OAuth credentials in the `[Service]` section (after the existing `Environment=` lines):
    ```ini
    Environment=GEMINI_OAUTH_CLIENT_ID=your-client-id.apps.googleusercontent.com
-   Environment=GEMINI_OAUTH_CLIENT_SECRET=google-oauth-client-secret
+   Environment=GEMINI_OAUTH_CLIENT_SECRET=your-google-oauth-client-secret
    ```
 
    如需使用“内置 Gemini CLI OAuth Client”（Code Assist / Google One），还需要注入：
    ```ini
-   Environment=GEMINI_CLI_OAUTH_CLIENT_SECRET=google-oauth-client-secret
+   Environment=GEMINI_CLI_OAUTH_CLIENT_ID=your-gemini-cli-oauth-client-id
+   Environment=GEMINI_CLI_OAUTH_CLIENT_SECRET=your-gemini-cli-oauth-client-secret
    ```
 
 3. Reload and restart:
@@ -456,7 +458,7 @@ If you need to use AI Studio OAuth for Gemini accounts, add the OAuth client cre
    sudo systemctl restart sub2api
    ```
 
-> **Note:** Code Assist OAuth does not require any configuration - it uses the built-in Gemini CLI client.
+> **Note:** Code Assist OAuth can use the Gemini CLI client, but this deployment must provide that client ID and secret through environment variables.
 > See the [Gemini OAuth Configuration](#gemini-oauth-configuration) section above for detailed setup instructions.
 
 #### Application Configuration

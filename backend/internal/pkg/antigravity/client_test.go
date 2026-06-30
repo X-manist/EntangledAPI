@@ -863,6 +863,7 @@ func newTestClientWithRedirect(redirects map[string]string) *Client {
 // ---------------------------------------------------------------------------
 
 func TestClient_ExchangeCode_Success_RealCall(t *testing.T) {
+	withTestAntigravityClientID(t)
 	old := defaultClientSecret
 	defaultClientSecret = "test-secret"
 	t.Cleanup(func() { defaultClientSecret = old })
@@ -877,7 +878,7 @@ func TestClient_ExchangeCode_Success_RealCall(t *testing.T) {
 		if err := r.ParseForm(); err != nil {
 			t.Fatalf("解析表单失败: %v", err)
 		}
-		if r.FormValue("client_id") != ClientID {
+		if r.FormValue("client_id") != testAntigravityClientID {
 			t.Errorf("client_id 不匹配: got %s", r.FormValue("client_id"))
 		}
 		if r.FormValue("client_secret") != "test-secret" {
@@ -934,6 +935,7 @@ func TestClient_ExchangeCode_Success_RealCall(t *testing.T) {
 }
 
 func TestClient_ExchangeCode_ServerError_RealCall(t *testing.T) {
+	withTestAntigravityClientID(t)
 	old := defaultClientSecret
 	defaultClientSecret = "test-secret"
 	t.Cleanup(func() { defaultClientSecret = old })
@@ -961,6 +963,7 @@ func TestClient_ExchangeCode_ServerError_RealCall(t *testing.T) {
 }
 
 func TestClient_ExchangeCode_InvalidJSON_RealCall(t *testing.T) {
+	withTestAntigravityClientID(t)
 	old := defaultClientSecret
 	defaultClientSecret = "test-secret"
 	t.Cleanup(func() { defaultClientSecret = old })
@@ -986,6 +989,7 @@ func TestClient_ExchangeCode_InvalidJSON_RealCall(t *testing.T) {
 }
 
 func TestClient_ExchangeCode_ContextCanceled_RealCall(t *testing.T) {
+	withTestAntigravityClientID(t)
 	old := defaultClientSecret
 	defaultClientSecret = "test-secret"
 	t.Cleanup(func() { defaultClientSecret = old })
@@ -1014,6 +1018,7 @@ func TestClient_ExchangeCode_ContextCanceled_RealCall(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestClient_RefreshToken_Success_RealCall(t *testing.T) {
+	withTestAntigravityClientID(t)
 	old := defaultClientSecret
 	defaultClientSecret = "test-secret"
 	t.Cleanup(func() { defaultClientSecret = old })
@@ -1031,7 +1036,7 @@ func TestClient_RefreshToken_Success_RealCall(t *testing.T) {
 		if r.FormValue("refresh_token") != "my-refresh-token" {
 			t.Errorf("refresh_token 不匹配: got %s", r.FormValue("refresh_token"))
 		}
-		if r.FormValue("client_id") != ClientID {
+		if r.FormValue("client_id") != testAntigravityClientID {
 			t.Errorf("client_id 不匹配: got %s", r.FormValue("client_id"))
 		}
 		if r.FormValue("client_secret") != "test-secret" {
@@ -1065,6 +1070,7 @@ func TestClient_RefreshToken_Success_RealCall(t *testing.T) {
 }
 
 func TestClient_RefreshToken_ServerError_RealCall(t *testing.T) {
+	withTestAntigravityClientID(t)
 	old := defaultClientSecret
 	defaultClientSecret = "test-secret"
 	t.Cleanup(func() { defaultClientSecret = old })
@@ -1089,6 +1095,7 @@ func TestClient_RefreshToken_ServerError_RealCall(t *testing.T) {
 }
 
 func TestClient_RefreshToken_InvalidJSON_RealCall(t *testing.T) {
+	withTestAntigravityClientID(t)
 	old := defaultClientSecret
 	defaultClientSecret = "test-secret"
 	t.Cleanup(func() { defaultClientSecret = old })
@@ -1114,6 +1121,7 @@ func TestClient_RefreshToken_InvalidJSON_RealCall(t *testing.T) {
 }
 
 func TestClient_RefreshToken_ContextCanceled_RealCall(t *testing.T) {
+	withTestAntigravityClientID(t)
 	old := defaultClientSecret
 	defaultClientSecret = "test-secret"
 	t.Cleanup(func() { defaultClientSecret = old })

@@ -326,9 +326,13 @@ func (c *Client) ExchangeCode(ctx context.Context, code, codeVerifier string) (*
 	if err != nil {
 		return nil, err
 	}
+	clientID, err := getClientID()
+	if err != nil {
+		return nil, err
+	}
 
 	params := url.Values{}
-	params.Set("client_id", ClientID)
+	params.Set("client_id", clientID)
 	params.Set("client_secret", clientSecret)
 	params.Set("code", code)
 	params.Set("redirect_uri", RedirectURI)
@@ -370,9 +374,13 @@ func (c *Client) RefreshToken(ctx context.Context, refreshToken string) (*TokenR
 	if err != nil {
 		return nil, err
 	}
+	clientID, err := getClientID()
+	if err != nil {
+		return nil, err
+	}
 
 	params := url.Values{}
-	params.Set("client_id", ClientID)
+	params.Set("client_id", clientID)
 	params.Set("client_secret", clientSecret)
 	params.Set("refresh_token", refreshToken)
 	params.Set("grant_type", "refresh_token")
