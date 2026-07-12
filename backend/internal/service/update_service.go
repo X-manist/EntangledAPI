@@ -15,11 +15,11 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"golang.org/x/mod/semver"
 )
 
 var (
@@ -28,13 +28,15 @@ var (
 )
 
 const (
-	updateCacheKey = "update_check_cache"
-	updateCacheTTL = 1200 // 20 minutes
-	githubRepo     = "Wei-Shaw/sub2api"
+	updateCacheKey           = "update_check_cache"
+	updateCacheTTL           = 1200 // 20 minutes
+	defaultUpdateRepository  = "Wei-Shaw/sub2api"
+	defaultUpdateDockerImage = "weishaw/sub2api"
 
 	// Security: allowed download domains for updates
 	allowedDownloadHost = "github.com"
 	allowedAssetHost    = "objects.githubusercontent.com"
+	allowedAPIHost      = "api.github.com"
 
 	// Security: max download size (500MB)
 	maxDownloadSize = 500 * 1024 * 1024
@@ -65,15 +67,27 @@ type UpdateService struct {
 	githubClient   GitHubReleaseClient
 	currentVersion string
 	buildType      string // "source" for manual builds, "release" for CI builds
+	repository     string
+	dockerImage    string
 }
 
 // NewUpdateService creates a new UpdateService
-func NewUpdateService(cache UpdateCache, githubClient GitHubReleaseClient, version, buildType string) *UpdateService {
+func NewUpdateService(cache UpdateCache, githubClient GitHubReleaseClient, version, buildType, repository, dockerImage string) *UpdateService {
+	repository = strings.TrimSpace(repository)
+	if repository == "" {
+		repository = defaultUpdateRepository
+	}
+	dockerImage = strings.TrimSpace(dockerImage)
+	if dockerImage == "" {
+		dockerImage = defaultUpdateDockerImage
+	}
 	return &UpdateService{
 		cache:          cache,
 		githubClient:   githubClient,
 		currentVersion: version,
 		buildType:      buildType,
+		repository:     repository,
+		dockerImage:    dockerImage,
 	}
 }
 
@@ -86,6 +100,8 @@ type UpdateInfo struct {
 	Cached         bool         `json:"cached"`
 	Warning        string       `json:"warning,omitempty"`
 	BuildType      string       `json:"build_type"` // "source" or "release"
+	Repository     string       `json:"repository"`
+	DockerImage    string       `json:"docker_image"`
 }
 
 // ReleaseInfo contains GitHub release details
@@ -125,6 +141,7 @@ type RollbackVersion struct {
 
 type GitHubAsset struct {
 	Name               string `json:"name"`
+	APIURL             string `json:"url"`
 	BrowserDownloadURL string `json:"browser_download_url"`
 	Size               int64  `json:"size"`
 }
@@ -152,6 +169,8 @@ func (s *UpdateService) CheckUpdate(ctx context.Context, force bool) (*UpdateInf
 			HasUpdate:      false,
 			Warning:        err.Error(),
 			BuildType:      s.buildType,
+			Repository:     s.repository,
+			DockerImage:    s.dockerImage,
 		}, nil
 	}
 
@@ -182,11 +201,13 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, releaseAssets []
 	// Find matching archive and checksum for current platform
 	archiveName := s.getArchiveName()
 	var downloadURL string
+	var downloadFileName string
 	var checksumURL string
 
 	for _, asset := range releaseAssets {
 		if strings.Contains(asset.Name, archiveName) && !strings.HasSuffix(asset.Name, ".txt") {
 			downloadURL = asset.DownloadURL
+			downloadFileName = updateAssetFileName(asset)
 		}
 		if asset.Name == "checksums.txt" {
 			checksumURL = asset.DownloadURL
@@ -228,7 +249,7 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, releaseAssets []
 	defer func() { _ = os.RemoveAll(tempDir) }()
 
 	// Download archive
-	archivePath := filepath.Join(tempDir, filepath.Base(downloadURL))
+	archivePath := filepath.Join(tempDir, downloadFileName)
 	if err := s.downloadFile(ctx, downloadURL, archivePath); err != nil {
 		return fmt.Errorf("download failed: %w", err)
 	}
@@ -277,6 +298,14 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, releaseAssets []
 	// Success - backup file is kept for rollback capability
 	// It will be cleaned up on next successful update
 	return nil
+}
+
+func updateAssetFileName(asset Asset) string {
+	name := filepath.Base(strings.TrimSpace(asset.Name))
+	if name != "" && name != "." && name != string(filepath.Separator) {
+		return name
+	}
+	return filepath.Base(asset.DownloadURL)
 }
 
 // Rollback restores the previous version
@@ -352,7 +381,7 @@ func (s *UpdateService) RollbackToVersion(ctx context.Context, version string) e
 	for i, a := range match.Assets {
 		assets[i] = Asset{
 			Name:        a.Name,
-			DownloadURL: a.BrowserDownloadURL,
+			DownloadURL: githubAssetDownloadURL(a),
 			Size:        a.Size,
 		}
 	}
@@ -363,7 +392,7 @@ func (s *UpdateService) RollbackToVersion(ctx context.Context, version string) e
 // fetchRollbackCandidates fetches recent releases and keeps the newest
 // maxRollbackVersions entries strictly older than the current version.
 func (s *UpdateService) fetchRollbackCandidates(ctx context.Context) ([]*GitHubRelease, error) {
-	releases, err := s.githubClient.FetchRecentReleases(ctx, githubRepo, rollbackFetchPageSize)
+	releases, err := s.githubClient.FetchRecentReleases(ctx, s.repository, rollbackFetchPageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -400,7 +429,7 @@ func (s *UpdateService) fetchRollbackCandidates(ctx context.Context) ([]*GitHubR
 }
 
 func (s *UpdateService) fetchLatestRelease(ctx context.Context) (*UpdateInfo, error) {
-	release, err := s.githubClient.FetchLatestRelease(ctx, githubRepo)
+	release, err := s.githubClient.FetchLatestRelease(ctx, s.repository)
 	if err != nil {
 		return nil, err
 	}
@@ -411,7 +440,7 @@ func (s *UpdateService) fetchLatestRelease(ctx context.Context) (*UpdateInfo, er
 	for i, a := range release.Assets {
 		assets[i] = Asset{
 			Name:        a.Name,
-			DownloadURL: a.BrowserDownloadURL,
+			DownloadURL: githubAssetDownloadURL(a),
 			Size:        a.Size,
 		}
 	}
@@ -427,9 +456,18 @@ func (s *UpdateService) fetchLatestRelease(ctx context.Context) (*UpdateInfo, er
 			HTMLURL:     release.HTMLURL,
 			Assets:      assets,
 		},
-		Cached:    false,
-		BuildType: s.buildType,
+		Cached:      false,
+		BuildType:   s.buildType,
+		Repository:  s.repository,
+		DockerImage: s.dockerImage,
 	}, nil
+}
+
+func githubAssetDownloadURL(asset GitHubAsset) string {
+	if apiURL := strings.TrimSpace(asset.APIURL); apiURL != "" {
+		return apiURL
+	}
+	return strings.TrimSpace(asset.BrowserDownloadURL)
 }
 
 func (s *UpdateService) downloadFile(ctx context.Context, downloadURL, dest string) error {
@@ -457,9 +495,11 @@ func validateDownloadURL(rawURL string) error {
 
 	// Check against allowed hosts
 	host := parsedURL.Host
-	// GitHub release URLs can be from github.com or objects.githubusercontent.com
+	// GitHub release URLs can be from github.com, the GitHub API (required for
+	// authenticated private release assets), or objects.githubusercontent.com.
 	if host != allowedDownloadHost &&
 		!strings.HasSuffix(host, "."+allowedDownloadHost) &&
+		host != allowedAPIHost &&
 		host != allowedAssetHost &&
 		!strings.HasSuffix(host, "."+allowedAssetHost) {
 		return fmt.Errorf("download from untrusted host: %s", host)
@@ -602,6 +642,7 @@ func (s *UpdateService) getFromCache(ctx context.Context) (*UpdateInfo, error) {
 	var cached struct {
 		Latest      string       `json:"latest"`
 		ReleaseInfo *ReleaseInfo `json:"release_info"`
+		Repository  string       `json:"repository"`
 		Timestamp   int64        `json:"timestamp"`
 	}
 	if err := json.Unmarshal([]byte(data), &cached); err != nil {
@@ -611,6 +652,12 @@ func (s *UpdateService) getFromCache(ctx context.Context) (*UpdateInfo, error) {
 	if time.Now().Unix()-cached.Timestamp > updateCacheTTL {
 		return nil, fmt.Errorf("cache expired")
 	}
+	if cached.Repository != "" && cached.Repository != s.repository {
+		return nil, fmt.Errorf("cache belongs to a different update repository")
+	}
+	if cached.Repository == "" && s.repository != defaultUpdateRepository {
+		return nil, fmt.Errorf("legacy cache cannot be used for a custom update repository")
+	}
 
 	return &UpdateInfo{
 		CurrentVersion: s.currentVersion,
@@ -619,6 +666,8 @@ func (s *UpdateService) getFromCache(ctx context.Context) (*UpdateInfo, error) {
 		ReleaseInfo:    cached.ReleaseInfo,
 		Cached:         true,
 		BuildType:      s.buildType,
+		Repository:     s.repository,
+		DockerImage:    s.dockerImage,
 	}, nil
 }
 
@@ -626,10 +675,12 @@ func (s *UpdateService) saveToCache(ctx context.Context, info *UpdateInfo) {
 	cacheData := struct {
 		Latest      string       `json:"latest"`
 		ReleaseInfo *ReleaseInfo `json:"release_info"`
+		Repository  string       `json:"repository"`
 		Timestamp   int64        `json:"timestamp"`
 	}{
 		Latest:      info.LatestVersion,
 		ReleaseInfo: info.ReleaseInfo,
+		Repository:  s.repository,
 		Timestamp:   time.Now().Unix(),
 	}
 
@@ -639,28 +690,21 @@ func (s *UpdateService) saveToCache(ctx context.Context, info *UpdateInfo) {
 
 // compareVersions compares two semantic versions
 func compareVersions(current, latest string) int {
-	currentParts := parseVersion(current)
-	latestParts := parseVersion(latest)
-
-	for i := 0; i < 3; i++ {
-		if currentParts[i] < latestParts[i] {
-			return -1
-		}
-		if currentParts[i] > latestParts[i] {
-			return 1
-		}
+	currentSemver := normalizeSemver(current)
+	latestSemver := normalizeSemver(latest)
+	if semver.IsValid(currentSemver) && semver.IsValid(latestSemver) {
+		return semver.Compare(currentSemver, latestSemver)
 	}
-	return 0
+	return strings.Compare(strings.TrimSpace(current), strings.TrimSpace(latest))
 }
 
-func parseVersion(v string) [3]int {
-	v = strings.TrimPrefix(v, "v")
-	parts := strings.Split(v, ".")
-	result := [3]int{0, 0, 0}
-	for i := 0; i < len(parts) && i < 3; i++ {
-		if parsed, err := strconv.Atoi(parts[i]); err == nil {
-			result[i] = parsed
-		}
+func normalizeSemver(version string) string {
+	version = strings.TrimSpace(version)
+	if version == "" {
+		return ""
 	}
-	return result
+	if !strings.HasPrefix(version, "v") {
+		version = "v" + version
+	}
+	return version
 }

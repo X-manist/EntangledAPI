@@ -145,9 +145,18 @@ services:
       # =======================================================================
       # Update Configuration (在线更新配置)
       # =======================================================================
+      # GitHub Release source. Private forks should use owner/repository and a
+      # fine-grained read-only token with Contents access.
+      - UPDATE_REPOSITORY=${UPDATE_REPOSITORY:-Wei-Shaw/sub2api}
+      - UPDATE_GITHUB_TOKEN=${UPDATE_GITHUB_TOKEN:-}
+      - UPDATE_DOCKER_IMAGE=${UPDATE_DOCKER_IMAGE:-weishaw/sub2api}
       # Proxy for accessing GitHub (online updates + pricing data)
       # Examples: http://host:port, socks5://host:port
       - UPDATE_PROXY_URL=${UPDATE_PROXY_URL:-}
+      # Keep the online-updated binary in /app/data/runtime so it survives
+      # container recreation. Use "always" only for one-time recovery from the image.
+      - SUB2API_RUNTIME_SEED_POLICY=${SUB2API_RUNTIME_SEED_POLICY:-if-missing}
+      - SUB2API_RUNTIME_DIR=${SUB2API_RUNTIME_DIR:-/app/data/runtime}
 
       # =======================================================================
       # Image Generation Stream & Concurrency

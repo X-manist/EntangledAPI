@@ -1124,6 +1124,15 @@ gemini:
 # Update Configuration (在线更新配置)
 # =============================================================================
 update:
+  # GitHub release source in owner/repository format.
+  # 私有 fork 示例: "X-manist/EntangledAPI"
+  repository: "Wei-Shaw/sub2api"
+  # Optional read-only fine-grained PAT for private repositories.
+  # 推荐通过 UPDATE_GITHUB_TOKEN 环境变量提供，不要写入版本库。
+  github_token: ""
+  # Image shown in manual Docker rollback instructions.
+  # 私有镜像示例: "ghcr.io/x-manist/sub2api"
+  docker_image: "weishaw/sub2api"
   # Proxy URL for accessing GitHub (used for online updates and pricing data)
   # 用于访问 GitHub 的代理地址（用于在线更新和定价数据获取）
   # Supports: http, https, socks5, socks5h

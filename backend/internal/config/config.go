@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -151,6 +152,14 @@ type GeminiTierQuotaConfig struct {
 }
 
 type UpdateConfig struct {
+	// Repository is the GitHub repository used for update checks and release assets.
+	// Keep the default for upstream builds; private forks should set owner/repository.
+	Repository string `mapstructure:"repository"`
+	// GitHubToken is an optional read-only token used for private repositories.
+	// It is server-side only and must never be exposed through settings APIs.
+	GitHubToken string `mapstructure:"github_token"`
+	// DockerImage is shown in manual Docker rollback instructions.
+	DockerImage string `mapstructure:"docker_image"`
 	// ProxyURL 用于访问 GitHub 的代理地址
 	// 支持 http/https/socks5/socks5h 协议
 	// 例如: "http://127.0.0.1:7890", "socks5://127.0.0.1:1080"
@@ -1530,6 +1539,10 @@ func load(allowMissingJWTSecret bool) (*Config, error) {
 	cfg.Log.Environment = strings.TrimSpace(cfg.Log.Environment)
 	cfg.Log.StacktraceLevel = strings.ToLower(strings.TrimSpace(cfg.Log.StacktraceLevel))
 	cfg.Log.Output.FilePath = strings.TrimSpace(cfg.Log.Output.FilePath)
+	cfg.Update.Repository = strings.TrimSpace(cfg.Update.Repository)
+	cfg.Update.GitHubToken = strings.TrimSpace(cfg.Update.GitHubToken)
+	cfg.Update.DockerImage = strings.TrimSpace(cfg.Update.DockerImage)
+	cfg.Update.ProxyURL = strings.TrimSpace(cfg.Update.ProxyURL)
 	cfg.Gateway.ForcedCodexInstructionsTemplateFile = strings.TrimSpace(cfg.Gateway.ForcedCodexInstructionsTemplateFile)
 	if cfg.Gateway.ForcedCodexInstructionsTemplateFile != "" {
 		content, err := os.ReadFile(cfg.Gateway.ForcedCodexInstructionsTemplateFile)
@@ -1876,6 +1889,13 @@ func setDefaults() {
 	viper.SetDefault("pricing.update_interval_hours", 24)
 	viper.SetDefault("pricing.hash_check_interval_minutes", 10)
 
+	// Update source. Private forks override these with UPDATE_REPOSITORY,
+	// UPDATE_GITHUB_TOKEN, and UPDATE_DOCKER_IMAGE.
+	viper.SetDefault("update.repository", "Wei-Shaw/sub2api")
+	viper.SetDefault("update.github_token", "")
+	viper.SetDefault("update.docker_image", "weishaw/sub2api")
+	viper.SetDefault("update.proxy_url", "")
+
 	// Timezone (default to Asia/Shanghai for Chinese users)
 	viper.SetDefault("timezone", "Asia/Shanghai")
 
@@ -2161,6 +2181,9 @@ func (c *Config) Validate() error {
 	}
 	if c.SubscriptionMaintenance.QueueSize < 0 {
 		return fmt.Errorf("subscription_maintenance.queue_size must be non-negative")
+	}
+	if !isValidGitHubRepository(c.Update.Repository) {
+		return fmt.Errorf("update.repository must use owner/repository format")
 	}
 
 	// Gemini OAuth 配置校验：client_id 与 client_secret 必须同时设置或同时留空。
@@ -2997,6 +3020,12 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("dingtalk_connect: %w", err)
 	}
 	return nil
+}
+
+var githubRepositoryPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
+
+func isValidGitHubRepository(repository string) bool {
+	return githubRepositoryPattern.MatchString(strings.TrimSpace(repository))
 }
 
 func normalizeStringSlice(values []string) []string {

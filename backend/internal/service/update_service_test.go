@@ -31,13 +31,17 @@ type updateServiceGitHubClientStub struct {
 	release        *GitHubRelease
 	recentReleases []*GitHubRelease
 	recentErr      error
+	latestRepo     string
+	recentRepo     string
 }
 
-func (s *updateServiceGitHubClientStub) FetchLatestRelease(context.Context, string) (*GitHubRelease, error) {
+func (s *updateServiceGitHubClientStub) FetchLatestRelease(_ context.Context, repo string) (*GitHubRelease, error) {
+	s.latestRepo = repo
 	return s.release, nil
 }
 
-func (s *updateServiceGitHubClientStub) FetchRecentReleases(context.Context, string, int) ([]*GitHubRelease, error) {
+func (s *updateServiceGitHubClientStub) FetchRecentReleases(_ context.Context, repo string, _ int) ([]*GitHubRelease, error) {
+	s.recentRepo = repo
 	return s.recentReleases, s.recentErr
 }
 
@@ -60,6 +64,8 @@ func TestUpdateServicePerformUpdateNoUpdateReturnsSentinel(t *testing.T) {
 		},
 		"0.1.132",
 		"release",
+		"",
+		"",
 	)
 
 	err := svc.PerformUpdate(context.Background())
@@ -75,6 +81,8 @@ func newRollbackTestService(current string, releases []*GitHubRelease) *UpdateSe
 		&updateServiceGitHubClientStub{recentReleases: releases},
 		current,
 		"release",
+		"",
+		"",
 	)
 }
 
@@ -137,6 +145,8 @@ func TestUpdateServiceListRollbackVersionsPropagatesFetchError(t *testing.T) {
 		&updateServiceGitHubClientStub{recentErr: errors.New("github unavailable")},
 		"0.1.147",
 		"release",
+		"",
+		"",
 	)
 
 	_, err := svc.ListRollbackVersions(context.Background())
@@ -184,4 +194,73 @@ func TestUpdateServiceRollbackToVersionAcceptsVPrefix(t *testing.T) {
 	require.Error(t, err)
 	require.NotErrorIs(t, err, ErrRollbackVersionNotAllowed)
 	require.Contains(t, err.Error(), "no compatible release found")
+}
+
+func TestUpdateServiceUsesConfiguredPrivateRepositoryAndAssetAPIURL(t *testing.T) {
+	client := &updateServiceGitHubClientStub{
+		release: &GitHubRelease{
+			TagName: "v0.1.151-entangled.2",
+			Name:    "Private release",
+			Assets: []GitHubAsset{
+				{
+					Name:               "sub2api_0.1.151-entangled.2_linux_amd64.tar.gz",
+					APIURL:             "https://api.github.com/repos/X-manist/EntangledAPI/releases/assets/123",
+					BrowserDownloadURL: "https://github.com/X-manist/EntangledAPI/releases/download/v0.1.151-entangled.2/sub2api.tar.gz",
+				},
+			},
+		},
+	}
+	svc := NewUpdateService(
+		&updateServiceCacheStub{},
+		client,
+		"0.1.151-entangled.1",
+		"release",
+		"X-manist/EntangledAPI",
+		"ghcr.io/x-manist/sub2api",
+	)
+
+	info, err := svc.CheckUpdate(context.Background(), true)
+
+	require.NoError(t, err)
+	require.True(t, info.HasUpdate)
+	require.Equal(t, "X-manist/EntangledAPI", client.latestRepo)
+	require.Equal(t, "X-manist/EntangledAPI", info.Repository)
+	require.Equal(t, "ghcr.io/x-manist/sub2api", info.DockerImage)
+	require.Len(t, info.ReleaseInfo.Assets, 1)
+	require.Equal(t, "https://api.github.com/repos/X-manist/EntangledAPI/releases/assets/123", info.ReleaseInfo.Assets[0].DownloadURL)
+}
+
+func TestCompareVersionsSupportsCustomReleaseSequence(t *testing.T) {
+	tests := []struct {
+		current string
+		latest  string
+		want    int
+	}{
+		{current: "0.1.151-entangled.1", latest: "0.1.151-entangled.2", want: -1},
+		{current: "v0.1.151-entangled.2", latest: "0.1.151-entangled.2", want: 0},
+		{current: "0.1.151-entangled.2", latest: "0.1.152-entangled.1", want: -1},
+		{current: "0.1.152-entangled.1", latest: "0.1.151-entangled.9", want: 1},
+		{current: "0.1.149-green.1", latest: "0.1.151-entangled.1", want: -1},
+	}
+
+	for _, tt := range tests {
+		got := compareVersions(tt.current, tt.latest)
+		switch {
+		case tt.want < 0:
+			require.Less(t, got, 0, "%s vs %s", tt.current, tt.latest)
+		case tt.want > 0:
+			require.Greater(t, got, 0, "%s vs %s", tt.current, tt.latest)
+		default:
+			require.Zero(t, got, "%s vs %s", tt.current, tt.latest)
+		}
+	}
+}
+
+func TestUpdateAssetFileNameUsesReleaseAssetNameForPrivateAPIURL(t *testing.T) {
+	asset := Asset{
+		Name:        "sub2api_0.1.151-entangled.2_linux_amd64.tar.gz",
+		DownloadURL: "https://api.github.com/repos/X-manist/EntangledAPI/releases/assets/123",
+	}
+
+	require.Equal(t, "sub2api_0.1.151-entangled.2_linux_amd64.tar.gz", updateAssetFileName(asset))
 }

@@ -149,9 +149,14 @@ services:
       # =======================================================================
       # Update Configuration (在线更新配置)
       # =======================================================================
+      - UPDATE_REPOSITORY=${UPDATE_REPOSITORY:-Wei-Shaw/sub2api}
+      - UPDATE_GITHUB_TOKEN=${UPDATE_GITHUB_TOKEN:-}
+      - UPDATE_DOCKER_IMAGE=${UPDATE_DOCKER_IMAGE:-weishaw/sub2api}
       # Proxy for accessing GitHub (online updates + pricing data)
       # Examples: http://host:port, socks5://host:port
       - UPDATE_PROXY_URL=${UPDATE_PROXY_URL:-}
+      - SUB2API_RUNTIME_SEED_POLICY=${SUB2API_RUNTIME_SEED_POLICY:-if-missing}
+      - SUB2API_RUNTIME_DIR=${SUB2API_RUNTIME_DIR:-/app/data/runtime}
 
       # =======================================================================
       # Image Generation Stream & Concurrency
