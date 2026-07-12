@@ -2,12 +2,15 @@
 
 > 本文档记录项目环境配置、常见坑点和注意事项，供 Claude Code 和团队成员参考。
 
+> 当前私有仓库、`custom/main`、官方上游同步和页面一键更新流程，以
+> [私有下游仓库开发、上游同步与页面一键更新](docs/PRIVATE_FORK_DEVELOPMENT_CN.md) 为准。
+
 ## 一、项目基本信息
 
 | 项目 | 说明 |
 |------|------|
 | **上游仓库** | Wei-Shaw/sub2api |
-| **Fork 仓库** | bayma888/sub2api-bmai |
+| **私有下游仓库** | X-manist/EntangledAPI |
 | **技术栈** | Go 后端 (Ent ORM + Gin) + Vue3 前端 (pnpm) |
 | **数据库** | PostgreSQL 16 + Redis |
 | **包管理** | 后端: go modules, 前端: **pnpm**（不是 npm） |
@@ -49,11 +52,12 @@ npm install -g pnpm
 |----------|----------|----------|
 | **backend-ci.yml** | push, pull_request | 单元测试 + 集成测试 + golangci-lint v2.7 |
 | **security-scan.yml** | push, pull_request, 每周一 | govulncheck + gosec + pnpm audit |
-| **release.yml** | tag `v*` | 构建发布（PR 不触发） |
+| **custom-release-on-merge.yml** | push 到 `custom/main` | 测试并自动生成 `vX.Y.Z-entangled.N` tag |
+| **release.yml** | tag `v*-entangled.*` | 构建私有 Release、二进制和镜像 |
 
 ### CI 要求
 
-- Go 版本必须是 **1.25.7**
+- Go 版本必须与 `backend/go.mod` 一致（当前为 **1.26.5**）
 - 前端使用 `pnpm install --frozen-lockfile`，必须提交 `pnpm-lock.yaml`
 
 ### 本地测试命令
