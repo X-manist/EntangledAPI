@@ -1,6 +1,6 @@
 # 私有下游仓库开发、上游同步与页面一键更新
 
-本文档适用于当前私有仓库 `X-manist/EntangledAPI`、生产分支 `custom/main`，以及 GreenVPS 上的 `sub2api`。
+本文档适用于自有下游仓库 `X-manist/EntangledAPI`、生产分支 `custom/main`，以及 GreenVPS 上的 `sub2api`。如果目标是私有发布，必须先在 GitHub 仓库设置中确认 `Visibility: Private`；仓库名属于自己并不代表仓库已经是私有状态。
 
 ## 1. 整体原则
 
@@ -55,10 +55,11 @@ git push -u origin custom/main
 
 推送成功后，在私有仓库设置中：
 
-1. 将默认分支改为 `custom/main`。
-2. 为 `custom/main` 开启分支保护和 Pull Request 合并要求。
-3. 在 Actions 设置中允许 Workflow 获得 `Read and write permissions`，用于创建 Release tag 和同步 VERSION 文件。
-4. 确认 Actions 可以创建和上传私有 Release 资产。
+1. 在 `Settings → General` 确认仓库 Visibility；需要私有发布时必须显示为 `Private`。
+2. 将默认分支改为 `custom/main`。
+3. 为 `custom/main` 开启分支保护和 Pull Request 合并要求。
+4. 在 Actions 设置中允许 Workflow 获得 `Read and write permissions`，用于创建 Release tag 和同步 VERSION 文件。
+5. 确认 Actions 可以创建和上传私有 Release 资产。
 
 确认运行稳定后，再决定是否归档旧的 `origin/main`；不要在确认前删除旧分支。
 
@@ -290,4 +291,3 @@ checksums.txt
 - [ ] Linux amd64 archive 和 `checksums.txt` 已上传。
 - [ ] GreenVPS 的 Token 只有私有仓库只读权限。
 - [ ] 管理页面展示的是私有仓库 Release，而不是 `Wei-Shaw/sub2api`。
-

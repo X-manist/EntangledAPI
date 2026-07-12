@@ -10,7 +10,7 @@
 | 项目 | 说明 |
 |------|------|
 | **上游仓库** | Wei-Shaw/sub2api |
-| **私有下游仓库** | X-manist/EntangledAPI |
+| **自有下游仓库** | X-manist/EntangledAPI（需要私有发布时须单独确认 Visibility=Private） |
 | **技术栈** | Go 后端 (Ent ORM + Gin) + Vue3 前端 (pnpm) |
 | **数据库** | PostgreSQL 16 + Redis |
 | **包管理** | 后端: go modules, 前端: **pnpm**（不是 npm） |
