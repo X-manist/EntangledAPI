@@ -43,6 +43,8 @@ export const useAppStore = defineStore('app', () => {
   const hasUpdate = ref<boolean>(false)
   const buildType = ref<string>('source')
   const releaseInfo = ref<ReleaseInfo | null>(null)
+  const updateRepository = ref<string>('Wei-Shaw/sub2api')
+  const updateDockerImage = ref<string>('weishaw/sub2api')
 
   // Auto-incrementing ID for toasts
   let toastIdCounter = 0
@@ -249,6 +251,8 @@ export const useAppStore = defineStore('app', () => {
         has_update: hasUpdate.value,
         build_type: buildType.value,
         release_info: releaseInfo.value || undefined,
+        repository: updateRepository.value,
+        docker_image: updateDockerImage.value,
         cached: true
       }
     }
@@ -266,6 +270,8 @@ export const useAppStore = defineStore('app', () => {
       hasUpdate.value = data.has_update
       buildType.value = data.build_type || 'source'
       releaseInfo.value = data.release_info || null
+      updateRepository.value = data.repository || 'Wei-Shaw/sub2api'
+      updateDockerImage.value = data.docker_image || 'weishaw/sub2api'
       versionLoaded.value = true
       return data
     } catch (error) {
@@ -451,6 +457,8 @@ export const useAppStore = defineStore('app', () => {
     hasUpdate,
     buildType,
     releaseInfo,
+    updateRepository,
+    updateDockerImage,
 
     // Computed
     hasActiveToasts,

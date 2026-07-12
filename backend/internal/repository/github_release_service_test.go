@@ -218,6 +218,7 @@ func (s *GitHubReleaseServiceSuite) TestFetchLatestRelease_Success() {
 		"assets": [
 			{
 				"name": "app-linux-amd64.tar.gz",
+				"url": "https://api.github.com/repos/test/repo/releases/assets/123",
 				"browser_download_url": "https://github.com/test/repo/releases/download/v1.0.0/app-linux-amd64.tar.gz"
 			}
 		]
@@ -227,6 +228,7 @@ func (s *GitHubReleaseServiceSuite) TestFetchLatestRelease_Success() {
 		require.Equal(s.T(), "/repos/test/repo/releases/latest", r.URL.Path)
 		require.Equal(s.T(), "application/vnd.github.v3+json", r.Header.Get("Accept"))
 		require.Equal(s.T(), "Sub2API-Updater", r.Header.Get("User-Agent"))
+		require.Empty(s.T(), r.Header.Get("Authorization"))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(releaseJSON))
@@ -246,6 +248,59 @@ func (s *GitHubReleaseServiceSuite) TestFetchLatestRelease_Success() {
 	require.Equal(s.T(), "Release 1.0.0", release.Name)
 	require.Len(s.T(), release.Assets, 1)
 	require.Equal(s.T(), "app-linux-amd64.tar.gz", release.Assets[0].Name)
+	require.Equal(s.T(), "https://api.github.com/repos/test/repo/releases/assets/123", release.Assets[0].APIURL)
+}
+
+func (s *GitHubReleaseServiceSuite) TestFetchLatestRelease_PrivateToken() {
+	s.srv = newLocalTestServer(s.T(), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(s.T(), "Bearer private-read-token", r.Header.Get("Authorization"))
+		require.Equal(s.T(), "2022-11-28", r.Header.Get("X-GitHub-Api-Version"))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"tag_name":"v1.0.0","name":"Private"}`))
+	}))
+
+	s.client = &githubReleaseClient{
+		httpClient: &http.Client{
+			Transport: &testTransport{testServerURL: s.srv.URL},
+		},
+		downloadHTTPClient: &http.Client{},
+		githubToken:        "private-read-token",
+	}
+
+	release, err := s.client.FetchLatestRelease(context.Background(), "test/private")
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), "Private", release.Name)
+}
+
+func (s *GitHubReleaseServiceSuite) TestDownloadFile_PrivateAssetUsesAPIAcceptAndToken() {
+	s.srv = newLocalTestServer(s.T(), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(s.T(), "/repos/test/private/releases/assets/123", r.URL.Path)
+		require.Equal(s.T(), "application/octet-stream", r.Header.Get("Accept"))
+		require.Equal(s.T(), "Bearer private-read-token", r.Header.Get("Authorization"))
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("private asset"))
+	}))
+
+	s.client = &githubReleaseClient{
+		httpClient: &http.Client{},
+		downloadHTTPClient: &http.Client{
+			Transport: &testTransport{testServerURL: s.srv.URL},
+		},
+		githubToken: "private-read-token",
+	}
+
+	dest := filepath.Join(s.tempDir, "private.bin")
+	err := s.client.DownloadFile(
+		context.Background(),
+		"https://api.github.com/repos/test/private/releases/assets/123",
+		dest,
+		1024,
+	)
+	require.NoError(s.T(), err)
+	content, err := os.ReadFile(dest)
+	require.NoError(s.T(), err)
+	require.Equal(s.T(), "private asset", string(content))
 }
 
 func (s *GitHubReleaseServiceSuite) TestFetchRecentReleases_Success() {

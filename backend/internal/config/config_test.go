@@ -98,6 +98,39 @@ func TestLoadDefaultSchedulingConfig(t *testing.T) {
 	}
 }
 
+func TestLoadDefaultUpdateConfig(t *testing.T) {
+	resetViperWithJWTSecret(t)
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.Equal(t, "Wei-Shaw/sub2api", cfg.Update.Repository)
+	require.Equal(t, "weishaw/sub2api", cfg.Update.DockerImage)
+	require.Empty(t, cfg.Update.GitHubToken)
+}
+
+func TestLoadCustomPrivateUpdateConfigFromEnvironment(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	t.Setenv("UPDATE_REPOSITORY", " X-manist/EntangledAPI ")
+	t.Setenv("UPDATE_GITHUB_TOKEN", " private-read-token ")
+	t.Setenv("UPDATE_DOCKER_IMAGE", " ghcr.io/x-manist/sub2api ")
+
+	cfg, err := Load()
+	require.NoError(t, err)
+	require.Equal(t, "X-manist/EntangledAPI", cfg.Update.Repository)
+	require.Equal(t, "private-read-token", cfg.Update.GitHubToken)
+	require.Equal(t, "ghcr.io/x-manist/sub2api", cfg.Update.DockerImage)
+}
+
+func TestValidateRejectsInvalidUpdateRepository(t *testing.T) {
+	resetViperWithJWTSecret(t)
+	cfg, err := Load()
+	require.NoError(t, err)
+	cfg.Update.Repository = "https://github.com/X-manist/EntangledAPI"
+
+	err = cfg.Validate()
+	require.ErrorContains(t, err, "update.repository must use owner/repository format")
+}
+
 func TestLoadDefaultOpenAIWSConfig(t *testing.T) {
 	resetViperWithJWTSecret(t)
 
