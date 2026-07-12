@@ -1,0 +1,105 @@
+name: Custom Release on Merge
+
+on:
+  push:
+    branches:
+      - custom/main
+    paths-ignore:
+      - backend/cmd/server/VERSION
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: custom-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test-and-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout full history
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Skip commits that already have a custom release tag
+        id: released
+        run: |
+          if git tag --points-at HEAD | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+-entangled\.[0-9]+$'; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Go
+        if: steps.released.outputs.skip != 'true'
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          check-latest: false
+          cache-dependency-path: backend/go.sum
+
+      - name: Run backend tests
+        if: steps.released.outputs.skip != 'true'
+        working-directory: backend
+        run: go test -tags=unit ./internal/config ./internal/repository ./internal/service
+
+      - name: Test persistent Docker runtime entrypoint
+        if: steps.released.outputs.skip != 'true'
+        run: sh deploy/docker-entrypoint_test.sh
+
+      - name: Setup pnpm
+        if: steps.released.outputs.skip != 'true'
+        uses: pnpm/action-setup@v6
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        if: steps.released.outputs.skip != 'true'
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Build frontend
+        if: steps.released.outputs.skip != 'true'
+        working-directory: frontend
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+
+      - name: Create next custom release tag
+        if: steps.released.outputs.skip != 'true'
+        run: |
+          raw_version=$(tr -d '\r\n' < backend/cmd/server/VERSION)
+          base_version=$(printf '%s' "$raw_version" | sed -E 's/^v?([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
+          if ! printf '%s' "$base_version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Cannot derive upstream base version from: $raw_version" >&2
+            exit 1
+          fi
+
+          latest_revision=$(git tag -l "v${base_version}-entangled.*" \
+            | sed -nE 's/.*-entangled\.([0-9]+)$/\1/p' \
+            | sort -n \
+            | tail -1)
+          if [ -z "$latest_revision" ]; then
+            latest_revision=0
+          fi
+          next_revision=$((latest_revision + 1))
+          tag="v${base_version}-entangled.${next_revision}"
+
+          previous_tag=$(git describe --tags --match 'v*-entangled.*' --abbrev=0 HEAD^ 2>/dev/null || true)
+          if [ -n "$previous_tag" ]; then
+            notes=$(git log --pretty='- %s' "${previous_tag}..HEAD")
+          else
+            notes=$(git log -20 --pretty='- %s')
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$tag" -m "Custom release $tag" -m "$notes"
+          git push origin "$tag"
+          echo "Created $tag; the Release workflow will publish binaries and checksums."
