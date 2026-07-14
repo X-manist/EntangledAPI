@@ -14,7 +14,9 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/announcementread"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
 	"github.com/Wei-Shaw/sub2api/ent/authidentity"
+	"github.com/Wei-Shaw/sub2api/ent/conversation"
 	"github.com/Wei-Shaw/sub2api/ent/group"
+	"github.com/Wei-Shaw/sub2api/ent/knowledgefile"
 	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
 	"github.com/Wei-Shaw/sub2api/ent/pendingauthsession"
 	"github.com/Wei-Shaw/sub2api/ent/promocodeusage"
@@ -24,6 +26,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/userattributevalue"
 	"github.com/Wei-Shaw/sub2api/ent/userplatformquota"
 	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
+	"github.com/Wei-Shaw/sub2api/ent/workspace"
 )
 
 // UserCreate is the builder for creating a User entity.
@@ -533,6 +536,51 @@ func (_c *UserCreate) AddPlatformQuotas(v ...*UserPlatformQuota) *UserCreate {
 		ids[i] = v[i].ID
 	}
 	return _c.AddPlatformQuotaIDs(ids...)
+}
+
+// AddConversationIDs adds the "conversations" edge to the Conversation entity by IDs.
+func (_c *UserCreate) AddConversationIDs(ids ...int64) *UserCreate {
+	_c.mutation.AddConversationIDs(ids...)
+	return _c
+}
+
+// AddConversations adds the "conversations" edges to the Conversation entity.
+func (_c *UserCreate) AddConversations(v ...*Conversation) *UserCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddConversationIDs(ids...)
+}
+
+// AddKnowledgeFileIDs adds the "knowledge_files" edge to the KnowledgeFile entity by IDs.
+func (_c *UserCreate) AddKnowledgeFileIDs(ids ...int64) *UserCreate {
+	_c.mutation.AddKnowledgeFileIDs(ids...)
+	return _c
+}
+
+// AddKnowledgeFiles adds the "knowledge_files" edges to the KnowledgeFile entity.
+func (_c *UserCreate) AddKnowledgeFiles(v ...*KnowledgeFile) *UserCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddKnowledgeFileIDs(ids...)
+}
+
+// AddWorkspaceIDs adds the "workspaces" edge to the Workspace entity by IDs.
+func (_c *UserCreate) AddWorkspaceIDs(ids ...int64) *UserCreate {
+	_c.mutation.AddWorkspaceIDs(ids...)
+	return _c
+}
+
+// AddWorkspaces adds the "workspaces" edges to the Workspace entity.
+func (_c *UserCreate) AddWorkspaces(v ...*Workspace) *UserCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddWorkspaceIDs(ids...)
 }
 
 // Mutation returns the UserMutation object of the builder.
@@ -1048,6 +1096,54 @@ func (_c *UserCreate) createSpec() (*User, *sqlgraph.CreateSpec) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(userplatformquota.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.ConversationsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.ConversationsTable,
+			Columns: []string{user.ConversationsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(conversation.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.KnowledgeFilesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.KnowledgeFilesTable,
+			Columns: []string{user.KnowledgeFilesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(knowledgefile.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.WorkspacesIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   user.WorkspacesTable,
+			Columns: []string{user.WorkspacesColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(workspace.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

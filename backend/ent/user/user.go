@@ -87,6 +87,12 @@ const (
 	EdgePendingAuthSessions = "pending_auth_sessions"
 	// EdgePlatformQuotas holds the string denoting the platform_quotas edge name in mutations.
 	EdgePlatformQuotas = "platform_quotas"
+	// EdgeConversations holds the string denoting the conversations edge name in mutations.
+	EdgeConversations = "conversations"
+	// EdgeKnowledgeFiles holds the string denoting the knowledge_files edge name in mutations.
+	EdgeKnowledgeFiles = "knowledge_files"
+	// EdgeWorkspaces holds the string denoting the workspaces edge name in mutations.
+	EdgeWorkspaces = "workspaces"
 	// EdgeUserAllowedGroups holds the string denoting the user_allowed_groups edge name in mutations.
 	EdgeUserAllowedGroups = "user_allowed_groups"
 	// Table holds the table name of the user in the database.
@@ -180,6 +186,27 @@ const (
 	PlatformQuotasInverseTable = "user_platform_quotas"
 	// PlatformQuotasColumn is the table column denoting the platform_quotas relation/edge.
 	PlatformQuotasColumn = "user_id"
+	// ConversationsTable is the table that holds the conversations relation/edge.
+	ConversationsTable = "conversations"
+	// ConversationsInverseTable is the table name for the Conversation entity.
+	// It exists in this package in order to avoid circular dependency with the "conversation" package.
+	ConversationsInverseTable = "conversations"
+	// ConversationsColumn is the table column denoting the conversations relation/edge.
+	ConversationsColumn = "user_id"
+	// KnowledgeFilesTable is the table that holds the knowledge_files relation/edge.
+	KnowledgeFilesTable = "knowledge_files"
+	// KnowledgeFilesInverseTable is the table name for the KnowledgeFile entity.
+	// It exists in this package in order to avoid circular dependency with the "knowledgefile" package.
+	KnowledgeFilesInverseTable = "knowledge_files"
+	// KnowledgeFilesColumn is the table column denoting the knowledge_files relation/edge.
+	KnowledgeFilesColumn = "user_id"
+	// WorkspacesTable is the table that holds the workspaces relation/edge.
+	WorkspacesTable = "workspaces"
+	// WorkspacesInverseTable is the table name for the Workspace entity.
+	// It exists in this package in order to avoid circular dependency with the "workspace" package.
+	WorkspacesInverseTable = "workspaces"
+	// WorkspacesColumn is the table column denoting the workspaces relation/edge.
+	WorkspacesColumn = "user_id"
 	// UserAllowedGroupsTable is the table that holds the user_allowed_groups relation/edge.
 	UserAllowedGroupsTable = "user_allowed_groups"
 	// UserAllowedGroupsInverseTable is the table name for the UserAllowedGroup entity.
@@ -592,6 +619,48 @@ func ByPlatformQuotas(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 	}
 }
 
+// ByConversationsCount orders the results by conversations count.
+func ByConversationsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newConversationsStep(), opts...)
+	}
+}
+
+// ByConversations orders the results by conversations terms.
+func ByConversations(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newConversationsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByKnowledgeFilesCount orders the results by knowledge_files count.
+func ByKnowledgeFilesCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newKnowledgeFilesStep(), opts...)
+	}
+}
+
+// ByKnowledgeFiles orders the results by knowledge_files terms.
+func ByKnowledgeFiles(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newKnowledgeFilesStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
+// ByWorkspacesCount orders the results by workspaces count.
+func ByWorkspacesCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newWorkspacesStep(), opts...)
+	}
+}
+
+// ByWorkspaces orders the results by workspaces terms.
+func ByWorkspaces(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newWorkspacesStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
+
 // ByUserAllowedGroupsCount orders the results by user_allowed_groups count.
 func ByUserAllowedGroupsCount(opts ...sql.OrderTermOption) OrderOption {
 	return func(s *sql.Selector) {
@@ -694,6 +763,27 @@ func newPlatformQuotasStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(PlatformQuotasInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, PlatformQuotasTable, PlatformQuotasColumn),
+	)
+}
+func newConversationsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(ConversationsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, ConversationsTable, ConversationsColumn),
+	)
+}
+func newKnowledgeFilesStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(KnowledgeFilesInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, KnowledgeFilesTable, KnowledgeFilesColumn),
+	)
+}
+func newWorkspacesStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(WorkspacesInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, WorkspacesTable, WorkspacesColumn),
 	)
 }
 func newUserAllowedGroupsStep() *sqlgraph.Step {

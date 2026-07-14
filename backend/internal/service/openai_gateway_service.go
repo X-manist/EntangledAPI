@@ -1571,11 +1571,11 @@ func isGitHubCopilotAccountEligibleForRequest(account *Account, requestedModel s
 	return true
 }
 
-func isOpenAICompatibleAccountEligibleForRequest(account *Account, requestedModel string, requireCompact bool, platform string) bool {
+func isOpenAICompatibleAccountEligibleForRequest(ctx context.Context, account *Account, requestedModel string, requireCompact bool, platform string, requiredCapability OpenAIEndpointCapability) bool {
 	if platform == PlatformGitHubCopilot {
 		return isGitHubCopilotAccountEligibleForRequest(account, requestedModel, requireCompact)
 	}
-	return isOpenAIAccountEligibleForRequest(account, requestedModel, requireCompact)
+	return isOpenAIAccountEligibleForRequest(ctx, account, requestedModel, requireCompact, requiredCapability)
 }
 
 // prioritizeOpenAICompactAccounts re-orders a slice so that accounts with known

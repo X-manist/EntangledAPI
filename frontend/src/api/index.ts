@@ -20,6 +20,10 @@ export { userChannelsAPI } from './channels'
 export { totpAPI } from './totp'
 export { default as announcementsAPI } from './announcements'
 export { channelMonitorUserAPI } from './channelMonitor'
+export { chatAPI } from './chat'
+export type { ChatConversationDTO, ChatMessageDTO, ChatRole } from './chat'
+export { workspaceKnowledgeAPI } from './workspaceKnowledge'
+export type { WorkspaceDTO, KnowledgeFileDTO } from './workspaceKnowledge'
 
 // Admin APIs
 export { adminAPI } from './admin'

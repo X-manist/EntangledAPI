@@ -111,6 +111,9 @@ func ProvideHandlers(
 	paymentHandler *PaymentHandler,
 	paymentWebhookHandler *PaymentWebhookHandler,
 	availableChannelHandler *AvailableChannelHandler,
+	chatHandler *ChatHandler,
+	workspaceHandler *WorkspaceHandler,
+	knowledgeHandler *KnowledgeHandler,
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
 ) *Handlers {
@@ -131,6 +134,9 @@ func ProvideHandlers(
 		Payment:          paymentHandler,
 		PaymentWebhook:   paymentWebhookHandler,
 		AvailableChannel: availableChannelHandler,
+		Chat:             chatHandler,
+		Workspace:        workspaceHandler,
+		Knowledge:        knowledgeHandler,
 	}
 }
 
@@ -152,6 +158,9 @@ var ProviderSet = wire.NewSet(
 	NewPaymentHandler,
 	NewPaymentWebhookHandler,
 	NewAvailableChannelHandler,
+	NewChatHandler,
+	NewWorkspaceHandler,
+	NewKnowledgeHandler,
 
 	// Admin handlers
 	admin.NewDashboardHandler,

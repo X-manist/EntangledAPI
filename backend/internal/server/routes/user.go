@@ -65,6 +65,37 @@ func RegisterUserRoutes(
 			keys.DELETE("/:id", h.APIKey.Delete)
 		}
 
+		// AI 对话持久化
+		chat := authenticated.Group("/chat")
+		{
+			chat.GET("/conversations", h.Chat.ListConversations)
+			chat.POST("/conversations", h.Chat.CreateConversation)
+			chat.GET("/conversations/:conversationId", h.Chat.GetConversation)
+			chat.PUT("/conversations/:conversationId", h.Chat.UpdateConversation)
+			chat.DELETE("/conversations/:conversationId", h.Chat.DeleteConversation)
+			chat.POST("/conversations/:conversationId/messages", h.Chat.CreateMessage)
+		}
+
+		// 工作空间
+		workspaces := authenticated.Group("/workspaces")
+		{
+			workspaces.GET("", h.Workspace.List)
+			workspaces.POST("", h.Workspace.Create)
+			workspaces.GET("/:workspaceId", h.Workspace.Get)
+			workspaces.PUT("/:workspaceId", h.Workspace.Update)
+			workspaces.DELETE("/:workspaceId", h.Workspace.Delete)
+		}
+
+		// 知识库文件
+		knowledge := authenticated.Group("/knowledge-files")
+		{
+			knowledge.GET("", h.Knowledge.List)
+			knowledge.POST("", h.Knowledge.Create)
+			knowledge.GET("/:fileId", h.Knowledge.Get)
+			knowledge.PUT("/:fileId", h.Knowledge.Update)
+			knowledge.DELETE("/:fileId", h.Knowledge.Delete)
+		}
+
 		// 用户可用分组（非管理员接口）
 		groups := authenticated.Group("/groups")
 		{

@@ -97,11 +97,17 @@ type UserEdges struct {
 	PendingAuthSessions []*PendingAuthSession `json:"pending_auth_sessions,omitempty"`
 	// PlatformQuotas holds the value of the platform_quotas edge.
 	PlatformQuotas []*UserPlatformQuota `json:"platform_quotas,omitempty"`
+	// Conversations holds the value of the conversations edge.
+	Conversations []*Conversation `json:"conversations,omitempty"`
+	// KnowledgeFiles holds the value of the knowledge_files edge.
+	KnowledgeFiles []*KnowledgeFile `json:"knowledge_files,omitempty"`
+	// Workspaces holds the value of the workspaces edge.
+	Workspaces []*Workspace `json:"workspaces,omitempty"`
 	// UserAllowedGroups holds the value of the user_allowed_groups edge.
 	UserAllowedGroups []*UserAllowedGroup `json:"user_allowed_groups,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [14]bool
+	loadedTypes [17]bool
 }
 
 // APIKeysOrErr returns the APIKeys value or an error if the edge
@@ -221,10 +227,37 @@ func (e UserEdges) PlatformQuotasOrErr() ([]*UserPlatformQuota, error) {
 	return nil, &NotLoadedError{edge: "platform_quotas"}
 }
 
+// ConversationsOrErr returns the Conversations value or an error if the edge
+// was not loaded in eager-loading.
+func (e UserEdges) ConversationsOrErr() ([]*Conversation, error) {
+	if e.loadedTypes[13] {
+		return e.Conversations, nil
+	}
+	return nil, &NotLoadedError{edge: "conversations"}
+}
+
+// KnowledgeFilesOrErr returns the KnowledgeFiles value or an error if the edge
+// was not loaded in eager-loading.
+func (e UserEdges) KnowledgeFilesOrErr() ([]*KnowledgeFile, error) {
+	if e.loadedTypes[14] {
+		return e.KnowledgeFiles, nil
+	}
+	return nil, &NotLoadedError{edge: "knowledge_files"}
+}
+
+// WorkspacesOrErr returns the Workspaces value or an error if the edge
+// was not loaded in eager-loading.
+func (e UserEdges) WorkspacesOrErr() ([]*Workspace, error) {
+	if e.loadedTypes[15] {
+		return e.Workspaces, nil
+	}
+	return nil, &NotLoadedError{edge: "workspaces"}
+}
+
 // UserAllowedGroupsOrErr returns the UserAllowedGroups value or an error if the edge
 // was not loaded in eager-loading.
 func (e UserEdges) UserAllowedGroupsOrErr() ([]*UserAllowedGroup, error) {
-	if e.loadedTypes[13] {
+	if e.loadedTypes[16] {
 		return e.UserAllowedGroups, nil
 	}
 	return nil, &NotLoadedError{edge: "user_allowed_groups"}
@@ -486,6 +519,21 @@ func (_m *User) QueryPendingAuthSessions() *PendingAuthSessionQuery {
 // QueryPlatformQuotas queries the "platform_quotas" edge of the User entity.
 func (_m *User) QueryPlatformQuotas() *UserPlatformQuotaQuery {
 	return NewUserClient(_m.config).QueryPlatformQuotas(_m)
+}
+
+// QueryConversations queries the "conversations" edge of the User entity.
+func (_m *User) QueryConversations() *ConversationQuery {
+	return NewUserClient(_m.config).QueryConversations(_m)
+}
+
+// QueryKnowledgeFiles queries the "knowledge_files" edge of the User entity.
+func (_m *User) QueryKnowledgeFiles() *KnowledgeFileQuery {
+	return NewUserClient(_m.config).QueryKnowledgeFiles(_m)
+}
+
+// QueryWorkspaces queries the "workspaces" edge of the User entity.
+func (_m *User) QueryWorkspaces() *WorkspaceQuery {
+	return NewUserClient(_m.config).QueryWorkspaces(_m)
 }
 
 // QueryUserAllowedGroups queries the "user_allowed_groups" edge of the User entity.

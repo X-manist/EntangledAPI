@@ -35,8 +35,8 @@ func (User) Mixin() []ent.Mixin {
 
 func (User) Fields() []ent.Field {
 	return []ent.Field{
-		// 唯一约束通过部分索引实现（WHERE deleted_at IS NULL），支持软删除后重用
-		// 见迁移文件 016_soft_delete_partial_unique_indexes.sql
+		// Unique email is enforced by partial indexes so soft-deleted users can reuse it.
+		// See migration 016_soft_delete_partial_unique_indexes.sql.
 		field.String("email").
 			MaxLen(255).
 			NotEmpty(),
@@ -55,16 +55,16 @@ func (User) Fields() []ent.Field {
 			MaxLen(20).
 			Default(domain.StatusActive),
 
-		// Optional profile fields (added later; default '' in DB migration)
+		// Optional profile fields (added later; default '' in DB migration).
 		field.String("username").
 			MaxLen(100).
 			Default(""),
-		// wechat field migrated to user_attribute_values (see migration 019)
+		// wechat field migrated to user_attribute_values (see migration 019).
 		field.String("notes").
 			SchemaType(map[string]string{dialect.Postgres: "text"}).
 			Default(""),
 
-		// TOTP 双因素认证字段
+		// TOTP two-factor authentication fields.
 		field.String("totp_secret_encrypted").
 			SchemaType(map[string]string{dialect.Postgres: "text"}).
 			Optional().
@@ -93,7 +93,7 @@ func (User) Fields() []ent.Field {
 			Nillable().
 			SchemaType(map[string]string{dialect.Postgres: "timestamptz"}),
 
-		// 余额不足通知
+		// Low balance notification settings.
 		field.Bool("balance_notify_enabled").
 			Default(true),
 		field.String("balance_notify_threshold_type").
@@ -109,7 +109,7 @@ func (User) Fields() []ent.Field {
 			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}).
 			Default(0),
 
-		// 用户级每分钟请求数上限（0 = 不限制）。仅当所在分组未设置 rpm_limit 时作为兜底生效。
+		// Per-user requests-per-minute fallback. 0 means unlimited.
 		field.Int("rpm_limit").
 			Default(0),
 	}
@@ -132,12 +132,14 @@ func (User) Edges() []ent.Edge {
 			Annotations(entsql.OnDelete(entsql.Cascade)),
 		edge.To("pending_auth_sessions", PendingAuthSession.Type),
 		edge.To("platform_quotas", UserPlatformQuota.Type),
+		edge.To("conversations", Conversation.Type),
+		edge.To("knowledge_files", KnowledgeFile.Type),
+		edge.To("workspaces", Workspace.Type),
 	}
 }
 
 func (User) Indexes() []ent.Index {
 	return []ent.Index{
-		// email 字段已在 Fields() 中声明 Unique()，无需重复索引
 		index.Fields("status"),
 		index.Fields("deleted_at"),
 	}

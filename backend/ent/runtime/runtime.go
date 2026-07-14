@@ -16,10 +16,13 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitordailyrollup"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorhistory"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorrequesttemplate"
+	"github.com/Wei-Shaw/sub2api/ent/conversation"
 	"github.com/Wei-Shaw/sub2api/ent/errorpassthroughrule"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/idempotencyrecord"
 	"github.com/Wei-Shaw/sub2api/ent/identityadoptiondecision"
+	"github.com/Wei-Shaw/sub2api/ent/knowledgefile"
+	"github.com/Wei-Shaw/sub2api/ent/message"
 	"github.com/Wei-Shaw/sub2api/ent/paymentauditlog"
 	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
 	"github.com/Wei-Shaw/sub2api/ent/paymentproviderinstance"
@@ -41,6 +44,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/userattributevalue"
 	"github.com/Wei-Shaw/sub2api/ent/userplatformquota"
 	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
+	"github.com/Wei-Shaw/sub2api/ent/workspace"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
 
@@ -690,6 +694,31 @@ func init() {
 	channelmonitorrequesttemplate.DefaultBodyOverrideMode = channelmonitorrequesttemplateDescBodyOverrideMode.Default.(string)
 	// channelmonitorrequesttemplate.BodyOverrideModeValidator is a validator for the "body_override_mode" field. It is called by the builders before save.
 	channelmonitorrequesttemplate.BodyOverrideModeValidator = channelmonitorrequesttemplateDescBodyOverrideMode.Validators[0].(func(string) error)
+	conversationMixin := schema.Conversation{}.Mixin()
+	conversationMixinHooks1 := conversationMixin[1].Hooks()
+	conversation.Hooks[0] = conversationMixinHooks1[0]
+	conversationMixinInters1 := conversationMixin[1].Interceptors()
+	conversation.Interceptors[0] = conversationMixinInters1[0]
+	conversationMixinFields0 := conversationMixin[0].Fields()
+	_ = conversationMixinFields0
+	conversationFields := schema.Conversation{}.Fields()
+	_ = conversationFields
+	// conversationDescCreatedAt is the schema descriptor for created_at field.
+	conversationDescCreatedAt := conversationMixinFields0[0].Descriptor()
+	// conversation.DefaultCreatedAt holds the default value on creation for the created_at field.
+	conversation.DefaultCreatedAt = conversationDescCreatedAt.Default.(func() time.Time)
+	// conversationDescUpdatedAt is the schema descriptor for updated_at field.
+	conversationDescUpdatedAt := conversationMixinFields0[1].Descriptor()
+	// conversation.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	conversation.DefaultUpdatedAt = conversationDescUpdatedAt.Default.(func() time.Time)
+	// conversation.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	conversation.UpdateDefaultUpdatedAt = conversationDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// conversationDescTitle is the schema descriptor for title field.
+	conversationDescTitle := conversationFields[2].Descriptor()
+	// conversation.DefaultTitle holds the default value on creation for the title field.
+	conversation.DefaultTitle = conversationDescTitle.Default.(string)
+	// conversation.TitleValidator is a validator for the "title" field. It is called by the builders before save.
+	conversation.TitleValidator = conversationDescTitle.Validators[0].(func(string) error)
 	errorpassthroughruleMixin := schema.ErrorPassthroughRule{}.Mixin()
 	errorpassthroughruleMixinFields0 := errorpassthroughruleMixin[0].Fields()
 	_ = errorpassthroughruleMixinFields0
@@ -940,6 +969,82 @@ func init() {
 	identityadoptiondecisionDescDecidedAt := identityadoptiondecisionFields[4].Descriptor()
 	// identityadoptiondecision.DefaultDecidedAt holds the default value on creation for the decided_at field.
 	identityadoptiondecision.DefaultDecidedAt = identityadoptiondecisionDescDecidedAt.Default.(func() time.Time)
+	knowledgefileMixin := schema.KnowledgeFile{}.Mixin()
+	knowledgefileMixinHooks1 := knowledgefileMixin[1].Hooks()
+	knowledgefile.Hooks[0] = knowledgefileMixinHooks1[0]
+	knowledgefileMixinInters1 := knowledgefileMixin[1].Interceptors()
+	knowledgefile.Interceptors[0] = knowledgefileMixinInters1[0]
+	knowledgefileMixinFields0 := knowledgefileMixin[0].Fields()
+	_ = knowledgefileMixinFields0
+	knowledgefileFields := schema.KnowledgeFile{}.Fields()
+	_ = knowledgefileFields
+	// knowledgefileDescCreatedAt is the schema descriptor for created_at field.
+	knowledgefileDescCreatedAt := knowledgefileMixinFields0[0].Descriptor()
+	// knowledgefile.DefaultCreatedAt holds the default value on creation for the created_at field.
+	knowledgefile.DefaultCreatedAt = knowledgefileDescCreatedAt.Default.(func() time.Time)
+	// knowledgefileDescUpdatedAt is the schema descriptor for updated_at field.
+	knowledgefileDescUpdatedAt := knowledgefileMixinFields0[1].Descriptor()
+	// knowledgefile.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	knowledgefile.DefaultUpdatedAt = knowledgefileDescUpdatedAt.Default.(func() time.Time)
+	// knowledgefile.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	knowledgefile.UpdateDefaultUpdatedAt = knowledgefileDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// knowledgefileDescFilename is the schema descriptor for filename field.
+	knowledgefileDescFilename := knowledgefileFields[2].Descriptor()
+	// knowledgefile.FilenameValidator is a validator for the "filename" field. It is called by the builders before save.
+	knowledgefile.FilenameValidator = knowledgefileDescFilename.Validators[0].(func(string) error)
+	// knowledgefileDescFileType is the schema descriptor for file_type field.
+	knowledgefileDescFileType := knowledgefileFields[3].Descriptor()
+	// knowledgefile.FileTypeValidator is a validator for the "file_type" field. It is called by the builders before save.
+	knowledgefile.FileTypeValidator = knowledgefileDescFileType.Validators[0].(func(string) error)
+	// knowledgefileDescFileSize is the schema descriptor for file_size field.
+	knowledgefileDescFileSize := knowledgefileFields[4].Descriptor()
+	// knowledgefile.DefaultFileSize holds the default value on creation for the file_size field.
+	knowledgefile.DefaultFileSize = knowledgefileDescFileSize.Default.(int64)
+	// knowledgefileDescStoragePath is the schema descriptor for storage_path field.
+	knowledgefileDescStoragePath := knowledgefileFields[5].Descriptor()
+	// knowledgefile.StoragePathValidator is a validator for the "storage_path" field. It is called by the builders before save.
+	knowledgefile.StoragePathValidator = knowledgefileDescStoragePath.Validators[0].(func(string) error)
+	// knowledgefileDescContentHash is the schema descriptor for content_hash field.
+	knowledgefileDescContentHash := knowledgefileFields[7].Descriptor()
+	// knowledgefile.ContentHashValidator is a validator for the "content_hash" field. It is called by the builders before save.
+	knowledgefile.ContentHashValidator = knowledgefileDescContentHash.Validators[0].(func(string) error)
+	// knowledgefileDescStatus is the schema descriptor for status field.
+	knowledgefileDescStatus := knowledgefileFields[9].Descriptor()
+	// knowledgefile.DefaultStatus holds the default value on creation for the status field.
+	knowledgefile.DefaultStatus = knowledgefileDescStatus.Default.(string)
+	// knowledgefile.StatusValidator is a validator for the "status" field. It is called by the builders before save.
+	knowledgefile.StatusValidator = knowledgefileDescStatus.Validators[0].(func(string) error)
+	messageMixin := schema.Message{}.Mixin()
+	messageMixinFields0 := messageMixin[0].Fields()
+	_ = messageMixinFields0
+	messageFields := schema.Message{}.Fields()
+	_ = messageFields
+	// messageDescCreatedAt is the schema descriptor for created_at field.
+	messageDescCreatedAt := messageMixinFields0[0].Descriptor()
+	// message.DefaultCreatedAt holds the default value on creation for the created_at field.
+	message.DefaultCreatedAt = messageDescCreatedAt.Default.(func() time.Time)
+	// messageDescUpdatedAt is the schema descriptor for updated_at field.
+	messageDescUpdatedAt := messageMixinFields0[1].Descriptor()
+	// message.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	message.DefaultUpdatedAt = messageDescUpdatedAt.Default.(func() time.Time)
+	// message.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	message.UpdateDefaultUpdatedAt = messageDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// messageDescRole is the schema descriptor for role field.
+	messageDescRole := messageFields[1].Descriptor()
+	// message.RoleValidator is a validator for the "role" field. It is called by the builders before save.
+	message.RoleValidator = messageDescRole.Validators[0].(func(string) error)
+	// messageDescTokensUsed is the schema descriptor for tokens_used field.
+	messageDescTokensUsed := messageFields[4].Descriptor()
+	// message.DefaultTokensUsed holds the default value on creation for the tokens_used field.
+	message.DefaultTokensUsed = messageDescTokensUsed.Default.(int)
+	// messageDescCost is the schema descriptor for cost field.
+	messageDescCost := messageFields[5].Descriptor()
+	// message.DefaultCost holds the default value on creation for the cost field.
+	message.DefaultCost = messageDescCost.Default.(float64)
+	// messageDescModel is the schema descriptor for model field.
+	messageDescModel := messageFields[6].Descriptor()
+	// message.ModelValidator is a validator for the "model" field. It is called by the builders before save.
+	message.ModelValidator = messageDescModel.Validators[0].(func(string) error)
 	paymentauditlogFields := schema.PaymentAuditLog{}.Fields()
 	_ = paymentauditlogFields
 	// paymentauditlogDescOrderID is the schema descriptor for order_id field.
@@ -2093,9 +2198,50 @@ func init() {
 	usersubscriptionDescAssignedAt := usersubscriptionFields[12].Descriptor()
 	// usersubscription.DefaultAssignedAt holds the default value on creation for the assigned_at field.
 	usersubscription.DefaultAssignedAt = usersubscriptionDescAssignedAt.Default.(func() time.Time)
+	workspaceMixin := schema.Workspace{}.Mixin()
+	workspaceMixinHooks1 := workspaceMixin[1].Hooks()
+	workspace.Hooks[0] = workspaceMixinHooks1[0]
+	workspaceMixinInters1 := workspaceMixin[1].Interceptors()
+	workspace.Interceptors[0] = workspaceMixinInters1[0]
+	workspaceMixinFields0 := workspaceMixin[0].Fields()
+	_ = workspaceMixinFields0
+	workspaceFields := schema.Workspace{}.Fields()
+	_ = workspaceFields
+	// workspaceDescCreatedAt is the schema descriptor for created_at field.
+	workspaceDescCreatedAt := workspaceMixinFields0[0].Descriptor()
+	// workspace.DefaultCreatedAt holds the default value on creation for the created_at field.
+	workspace.DefaultCreatedAt = workspaceDescCreatedAt.Default.(func() time.Time)
+	// workspaceDescUpdatedAt is the schema descriptor for updated_at field.
+	workspaceDescUpdatedAt := workspaceMixinFields0[1].Descriptor()
+	// workspace.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	workspace.DefaultUpdatedAt = workspaceDescUpdatedAt.Default.(func() time.Time)
+	// workspace.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	workspace.UpdateDefaultUpdatedAt = workspaceDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// workspaceDescName is the schema descriptor for name field.
+	workspaceDescName := workspaceFields[1].Descriptor()
+	// workspace.NameValidator is a validator for the "name" field. It is called by the builders before save.
+	workspace.NameValidator = func() func(string) error {
+		validators := workspaceDescName.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(name string) error {
+			for _, fn := range fns {
+				if err := fn(name); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// workspaceDescDescription is the schema descriptor for description field.
+	workspaceDescDescription := workspaceFields[2].Descriptor()
+	// workspace.DefaultDescription holds the default value on creation for the description field.
+	workspace.DefaultDescription = workspaceDescDescription.Default.(string)
 }
 
 const (
-	Version = "v0.14.5"                                         // Version of ent codegen.
-	Sum     = "h1:Rj2WOYJtCkWyFo6a+5wB3EfBRP0rnx1fMk6gGA0UUe4=" // Sum of ent codegen.
+	Version = "v0.14.6"                                         // Version of ent codegen.
+	Sum     = "h1:/f2696BpwuWAEEG6PVGWflg6+Inrpq4pRWuNlWz/Skk=" // Sum of ent codegen.
 )
