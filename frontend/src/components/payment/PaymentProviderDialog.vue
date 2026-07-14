@@ -109,6 +109,66 @@
         <p v-if="paymentGuide" class="mb-3 text-xs text-gray-500 dark:text-gray-400">
           {{ paymentGuide.summary }}
         </p>
+        
+        <!-- Alipay Configuration Guide (collapsible) -->
+        <div v-if="form.provider_key === 'alipay'" class="mb-4 rounded-lg border border-blue-200 bg-blue-50 dark:border-blue-800/50 dark:bg-blue-900/20">
+          <button 
+            type="button" 
+            @click="alipayGuideExpanded = !alipayGuideExpanded" 
+            class="flex w-full items-center justify-between p-3 text-left"
+          >
+            <span class="text-sm font-medium text-blue-900 dark:text-blue-100">
+              {{ t('admin.settings.payment.alipayConfigGuideTitle') }}
+            </span>
+            <svg :class="['h-4 w-4 text-blue-700 transition-transform dark:text-blue-300', alipayGuideExpanded && 'rotate-180']" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          <div v-show="alipayGuideExpanded" class="space-y-3 border-t border-blue-200 p-3 dark:border-blue-800/50">
+            <!-- Parameters Guide -->
+            <div class="space-y-2">
+              <div>
+                <p class="text-xs font-semibold text-blue-900 dark:text-blue-100">{{ t('admin.settings.payment.alipayConfigGuideAppIdLabel') }}</p>
+                <p class="text-xs text-blue-700 dark:text-blue-300">{{ t('admin.settings.payment.alipayConfigGuideAppIdHint') }}</p>
+              </div>
+              <div>
+                <p class="text-xs font-semibold text-blue-900 dark:text-blue-100">{{ t('admin.settings.payment.alipayConfigGuidePrivateKeyLabel') }}</p>
+                <p class="text-xs text-blue-700 dark:text-blue-300">{{ t('admin.settings.payment.alipayConfigGuidePrivateKeyHint') }}</p>
+              </div>
+              <div>
+                <p class="text-xs font-semibold text-blue-900 dark:text-blue-100">{{ t('admin.settings.payment.alipayConfigGuidePublicKeyLabel') }}</p>
+                <p class="text-xs text-blue-700 dark:text-blue-300">{{ t('admin.settings.payment.alipayConfigGuidePublicKeyHint') }}</p>
+              </div>
+            </div>
+            
+            <!-- Merchant Types -->
+            <div class="border-t border-blue-200 pt-2 dark:border-blue-800/50">
+              <p class="mb-1 text-xs font-semibold text-blue-900 dark:text-blue-100">{{ t('admin.settings.payment.alipayConfigGuideMerchantTypeTitle') }}</p>
+              <ul class="space-y-1 text-xs text-blue-700 dark:text-blue-300">
+                <li>• {{ t('admin.settings.payment.alipayConfigGuideMerchantTypeIndividual') }}</li>
+                <li>• {{ t('admin.settings.payment.alipayConfigGuideMerchantTypeEnterprise') }}</li>
+                <li>• {{ t('admin.settings.payment.alipayConfigGuideMerchantTypePersonal') }}</li>
+              </ul>
+            </div>
+            
+            <!-- Configuration Steps -->
+            <div class="border-t border-blue-200 pt-2 dark:border-blue-800/50">
+              <p class="mb-1 text-xs font-semibold text-blue-900 dark:text-blue-100">{{ t('admin.settings.payment.alipayConfigGuideStepsTitle') }}</p>
+              <ol class="space-y-0.5 text-xs text-blue-700 dark:text-blue-300">
+                <li>{{ t('admin.settings.payment.alipayConfigGuideStep1') }}</li>
+                <li>{{ t('admin.settings.payment.alipayConfigGuideStep2') }}</li>
+                <li>{{ t('admin.settings.payment.alipayConfigGuideStep3') }}</li>
+                <li>{{ t('admin.settings.payment.alipayConfigGuideStep4') }}</li>
+                <li>{{ t('admin.settings.payment.alipayConfigGuideStep5') }}</li>
+                <li>{{ t('admin.settings.payment.alipayConfigGuideStep6') }}</li>
+                <li>{{ t('admin.settings.payment.alipayConfigGuideStep7') }}</li>
+              </ol>
+              <p class="mt-2 text-xs text-blue-700 dark:text-blue-300">
+                {{ t('admin.settings.payment.alipayConfigGuideDocsLink') }}
+              </p>
+            </div>
+          </div>
+        </div>
         <div class="space-y-3">
           <div v-for="field in resolvedFields" :key="field.key">
             <label class="input-label">
@@ -364,6 +424,7 @@ const limits = reactive<Record<string, Record<string, number>>>({})
 const notifyBaseUrl = ref('')
 const returnBaseUrl = ref('')
 const limitsExpanded = ref(false)
+const alipayGuideExpanded = ref(false)
 const visibleFields = reactive<Record<string, boolean>>({})
 
 // --- Computed ---

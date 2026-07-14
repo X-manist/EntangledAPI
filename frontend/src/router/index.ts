@@ -174,6 +174,24 @@ const routes: RouteRecordRaw[] = [
       title: 'Legal Document'
     }
   },
+  {
+    path: '/about',
+    name: 'About',
+    component: () => import('@/views/public/AboutView.vue'),
+    meta: {
+      requiresAuth: false,
+      title: 'About Us'
+    }
+  },
+  {
+    path: '/contact',
+    name: 'Contact',
+    component: () => import('@/views/public/ContactView.vue'),
+    meta: {
+      requiresAuth: false,
+      title: 'Contact Us'
+    }
+  },
 
   // ==================== User Routes ====================
   {
@@ -188,8 +206,41 @@ const routes: RouteRecordRaw[] = [
       requiresAuth: true,
       requiresAdmin: false,
       title: 'Dashboard',
-      titleKey: 'dashboard.title',
-      descriptionKey: 'dashboard.welcomeMessage'
+      titleKey: 'nav.dashboard',
+      descriptionKey: 'dashboard.description'
+    }
+  },
+  {
+    path: '/chat',
+    name: 'Chat',
+    component: () => import('@/views/ChatView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'AI Chat',
+      titleKey: 'chat.title',
+      descriptionKey: 'chat.description'
+    }
+  },
+  {
+    path: '/chat/:conversationId',
+    name: 'ChatConversation',
+    component: () => import('@/views/ChatView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'AI Chat'
+    }
+  },
+  {
+    path: '/workspaces',
+    name: 'WorkspaceKnowledge',
+    component: () => import('@/views/user/WorkspaceKnowledgeView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Workspaces',
+      descriptionKey: 'workspace.description'
     }
   },
   {

@@ -147,7 +147,7 @@ export default {
     cost: '费用',
     // Status
     quotaMode: 'Key 限额模式',
-    walletBalance: '钱包余额',
+    walletBalance: '研究额度', // 🔬 科研风格
     // Ring card titles
     totalQuota: '总额度',
     limit5h: '5 小时限额',
@@ -298,7 +298,7 @@ export default {
     enabled: '已启用',
     disabled: '已禁用',
     total: '总计',
-    balance: '余额',
+    balance: '研究额度', // 🔬 科研风格：积分余额 → 研究额度
     available: '可用',
     copiedToClipboard: '已复制到剪贴板',
     copied: '已复制',
@@ -352,22 +352,22 @@ export default {
   nav: {
     dashboard: '仪表盘',
     announcements: '公告',
-    apiKeys: 'API 密钥',
-    usage: '使用记录',
-    redeem: '兑换',
-    affiliate: '邀请返利',
-    affiliateManagement: '邀请返利',
-    affiliateInviteRecords: '邀请记录',
-    affiliateRebateRecords: '返利记录',
+    apiKeys: '研究凭证', // 🔬 科研风格：应用凭证 → 研究凭证
+    usage: '资源使用', // 保持
+    redeem: '激活码', // 保持
+    affiliate: '推荐计划', // 🔬 科研风格：邀请返利 → 推荐计划
+    affiliateManagement: '推荐计划', // 🔬
+    affiliateInviteRecords: '推荐记录', // 🔬 原：邀请记录
+    affiliateRebateRecords: '奖励记录', // 🔬 原：返利记录
     affiliateTransferRecords: '提取记录',
     profile: '个人资料',
     users: '用户管理',
     groups: '分组管理',
     channels: '渠道管理',
-    availableChannels: '可用渠道',
+    availableChannels: '可用模型', // 🔬 科研风格：可用渠道 → 可用模型
     subscriptions: '订阅管理',
-    accounts: '账号管理',
-    proxies: 'IP管理',
+    accounts: '账号管理', // Admin 保留原术语，便于内部使用
+    proxies: '代理管理', // Admin 保留原术语
     redeemCodes: '兑换码',
     ops: '运维监控',
     promoCodes: '优惠码',
@@ -380,17 +380,17 @@ export default {
     logout: '退出登录',
     github: 'GitHub',
     mySubscriptions: '我的订阅',
-    buySubscription: '充值/订阅',
+    buySubscription: '算力充值', // 🔬 科研风格
     docs: '文档',
-    myOrders: '我的订单',
-    orderManagement: '订单管理',
+    myOrders: '我的申请', // 🔬 科研风格：我的订单 → 我的申请
+    orderManagement: '申请管理', // 🔬 科研风格：订单管理 → 申请管理
     paymentDashboard: '支付概览',
     paymentConfig: '支付配置',
-    paymentPlans: '订阅套餐',
-    channelManagement: '渠道管理',
+    paymentPlans: '算力套餐', // 🔬 科研风格
+    channelManagement: '渠道管理', // Admin 保留
     channelPricing: '渠道定价',
     channelMonitor: '渠道监控',
-    channelStatus: '渠道状态',
+    channelStatus: '服务状态', // 🔬 科研风格：渠道状态 → 服务状态
     riskControl: '风控中心',
   },
 
@@ -400,8 +400,8 @@ export default {
     signInToAccount: '登录您的账户以继续',
     signIn: '登录',
     signingIn: '登录中...',
-    createAccount: '创建账户',
-    signUpToStart: '注册以开始使用 {siteName}',
+    createAccount: '注册账户', // 🔬 科研风格：创建账户 → 注册账户
+    signUpToStart: '注册以加入 {siteName}', // 🔬 科研风格：开始使用 → 加入
     signUp: '注册',
     processing: '处理中...',
     continue: '继续',
@@ -454,7 +454,7 @@ export default {
     invalidCode: '请输入有效的6位验证码',
     promoCodeLabel: '优惠码',
     promoCodePlaceholder: '输入优惠码（可选）',
-    promoCodeValid: '有效！注册后将获得 ${amount} 赠送余额',
+    promoCodeValid: '有效！注册后将获得 ${amount} 研究算力', // 🔬 科研风格
     promoCodeInvalid: '无效的优惠码',
     promoCodeNotFound: '优惠码不存在',
     promoCodeExpired: '此优惠码已过期',
@@ -617,8 +617,8 @@ export default {
   dashboard: {
     title: '仪表盘',
     welcomeMessage: '欢迎回来！这是您账户的概览。',
-    balance: '余额',
-    apiKeys: 'API 密钥',
+    balance: '研究额度', // 🔬 保持一致
+    apiKeys: '研究凭证', // 🔬 保持一致
     todayRequests: '今日请求',
     todayCost: '今日消费',
     todayTokens: '今日 Token',
@@ -669,7 +669,7 @@ export default {
     viewUsage: '查看使用记录',
     checkDetailedLogs: '查看详细的使用日志',
     redeemCode: '兑换码',
-    addBalanceWithCode: '使用兑换码充值'
+    addBalanceWithCode: '使用兑换码获取算力' // 🔬 科研风格：积分 → 算力
   },
 
   // Groups (shared)
@@ -1107,8 +1107,8 @@ export default {
   // Redeem
   redeem: {
     title: '兑换码',
-    description: '输入兑换码以充值余额或增加并发数',
-    currentBalance: '当前余额',
+    description: '输入兑换码以获取算力或增加并发数', // 🔬 科研风格
+    currentBalance: '当前算力', // 🔬 科研风格
     concurrency: '并发数',
     requests: '请求',
     redeemCodeLabel: '兑换码',
@@ -1120,19 +1120,19 @@ export default {
     redeemFailed: '兑换失败',
     added: '已添加',
     concurrentRequests: '并发请求',
-    newBalance: '新余额',
+    newBalance: '新算力额度', // 🔬 科研风格
     newConcurrency: '新并发数',
     aboutCodes: '关于兑换码',
     codeRule1: '每个兑换码只能使用一次',
-    codeRule2: '兑换码可以增加余额、并发数或试用权限',
+    codeRule2: '兑换码可以增加算力、并发数或试用权限', // 🔬 科研风格
     codeRule3: '如有兑换问题，请联系客服',
-    codeRule4: '余额和并发数即时更新',
+    codeRule4: '算力和并发数即时更新', // 🔬 科研风格
     recentActivity: '最近活动',
     historyWillAppear: '您的兑换历史将显示在这里',
-    balanceAddedRedeem: '余额充值（兑换）',
-    balanceAddedAffiliate: '余额充值（返利转入）',
-    balanceAddedAdmin: '余额充值（管理员）',
-    balanceDeductedAdmin: '余额扣除（管理员）',
+    balanceAddedRedeem: '算力充值（兑换）', // 🔬 科研风格
+    balanceAddedAffiliate: '算力充值（返利转入）', // 🔬
+    balanceAddedAdmin: '算力充值（管理员）', // 🔬
+    balanceDeductedAdmin: '算力扣除（管理员）', // 🔬
     concurrencyAddedRedeem: '并发增加（兑换）',
     concurrencyAddedAdmin: '并发增加（管理员）',
     concurrencyReducedAdmin: '并发减少（管理员）',
@@ -1826,8 +1826,8 @@ export default {
         role: '角色',
         groups: '分组',
         subscriptions: '订阅分组',
-        balance: '余额',
-        balancePlatformQuota: '余额(平台配额)',
+        balance: '研究额度', // 🔬 保持一致
+        balancePlatformQuota: '研究额度(平台配额)', // 🔬 保持一致
         usage: '用量',
         usageAnthropic: '用量 (Claude)',
         usageOpenAI: '用量 (OpenAI)',
@@ -4199,7 +4199,7 @@ export default {
 
     // Proxies Management
     proxies: {
-      title: 'IP管理',
+      title: '代理管理',
       description: '管理代理服务器配置',
       createProxy: '添加代理',
       editProxy: '编辑代理',
@@ -4394,7 +4394,7 @@ export default {
         actions: '操作'
       },
       types: {
-        balance: '余额',
+        balance: '研究额度', // 🔬 科研风格
         concurrency: '并发数',
         subscription: '订阅',
         invitation: '邀请码',
@@ -4403,7 +4403,7 @@ export default {
         admin_concurrency: '并发数（管理员）'
       },
       // 用于选择器和筛选器的直接键
-      balance: '余额',
+      balance: '研究额度', // 🔬 保持一致
       concurrency: '并发数',
       subscription: '订阅',
       invitation: '邀请码',
@@ -5936,8 +5936,8 @@ export default {
         minAmount: '最低金额',
         maxAmount: '最高金额',
         dailyLimit: '每日限额',
-        balanceRechargeMultiplier: '余额充值倍率',
-        balanceRechargeMultiplierHint: '用户每支付 1 CNY 可获得多少 USD 余额',
+        balanceRechargeMultiplier: '算力充值倍率', // 🔬 科研风格
+        balanceRechargeMultiplierHint: '用户每支付 1 CNY 可获得多少 USD 算力', // 🔬
         balanceRechargePreview: '预览：1 CNY = {usd} USD',
         rechargeFeeRate: '充值手续费率',
         rechargeFeeRateHint: '用户充值时额外收取的手续费百分比，0 表示不收取手续费',
@@ -5964,7 +5964,7 @@ export default {
         helpText: '帮助文本',
         helpImageUrl: '帮助图片链接',
         manageProviders: '管理服务商',
-        balancePaymentDisabled: '禁用余额充值',
+        balancePaymentDisabled: '禁用算力充值', // 🔬 科研风格
         noLimit: '留空表示不限制',
         helpImage: '帮助图片',
         helpImagePlaceholder: '上传或输入图片链接',
@@ -6046,6 +6046,26 @@ export default {
         guideCallLabel: '调用：',
         guideFallbackLabel: '降级：',
         alipayGuideSummary: '桌面优先扫码单，失败再走收银台；移动优先手机网站支付。',
+        alipayConfigGuideTitle: '配置参数获取说明',
+        alipayConfigGuideAppIdLabel: 'App ID（应用 ID / APPID）',
+        alipayConfigGuideAppIdHint: '在支付宝开放平台（open.alipay.com）创建应用后获得，格式为 2021xxxxxxxxxxxxx',
+        alipayConfigGuidePrivateKeyLabel: '应用私钥（privateKey）',
+        alipayConfigGuidePrivateKeyHint: '使用支付宝密钥生成工具生成 RSA2(SHA256)密钥对，上传公钥到支付宝后台，保留私钥填入此处。格式为完整的 PKCS#1 或 PKCS#8 格式私钥字符串（包含 BEGIN/END 标记）',
+        alipayConfigGuidePublicKeyLabel: '支付宝公钥（publicKey / alipayPublicKey）',
+        alipayConfigGuidePublicKeyHint: '在支付宝开放平台应用详情 → 开发信息 → 接口加签方式中，上传应用公钥后，点击"查看支付宝公钥"获取。注意：这不是应用公钥，而是支付宝平台返回的公钥',
+        alipayConfigGuideMerchantTypeTitle: '商户类型说明',
+        alipayConfigGuideMerchantTypeIndividual: '个体工商户：需提供营业执照、法人身份证、结算银行卡。可开通当面付、手机网站支付、电脑网站支付等产品',
+        alipayConfigGuideMerchantTypeEnterprise: '企业商户：需提供营业执照、对公账户信息。可开通全部支付产品',
+        alipayConfigGuideMerchantTypePersonal: '个人开发者：支持小程序、生活号等部分产品，不支持当面付等资金收款产品',
+        alipayConfigGuideStepsTitle: '配置步骤（个体工商户/企业）',
+        alipayConfigGuideStep1: '1. 登录支付宝开放平台（open.alipay.com），使用商户支付宝账号登录',
+        alipayConfigGuideStep2: '2. 创建应用：控制台 → 网页&移动应用 → 创建应用，填写应用信息',
+        alipayConfigGuideStep3: '3. 配置密钥：下载"支付宝开放平台密钥工具"，生成 RSA2(SHA256)密钥对',
+        alipayConfigGuideStep4: '4. 上传公钥：应用详情 → 开发信息 → 接口加签方式(密钥/证书) → 设置 → 上传应用公钥',
+        alipayConfigGuideStep5: '5. 获取参数：记录 APPID、保存应用私钥、点击"查看支付宝公钥"获取支付宝公钥',
+        alipayConfigGuideStep6: '6. 签约产品：应用详情 → 产品绑定 → 添加产品（当面付/手机网站支付/电脑网站支付）',
+        alipayConfigGuideStep7: '7. 提交审核：根据商户类型提交营业执照等资质材料，等待审核通过',
+        alipayConfigGuideDocsLink: '详细文档：https://opendocs.alipay.com/open/291/105971',
         alipayGuideFaceToFaceTitle: '当面付 / 扫码支付',
         alipayGuideFaceToFaceOpen: '需开通当面付或扫码支付能力。',
         alipayGuideFaceToFaceCall: '桌面端下单时优先调用 alipay.trade.precreate，前台直接渲染二维码。',
@@ -7233,6 +7253,50 @@ export default {
         revoked: '已撤销',
       },
     },
+  },
+
+  // Public Pages
+  public: {
+    about: {
+      title: '关于我们',
+      subtitle: '了解我们的公司信息与服务',
+      companyIntro: '公司介绍',
+      companyName: '公司名称',
+      businessType: '经营类型',
+      registrationNumber: '统一社会信用代码/注册号',
+      businessScope: '经营范围',
+      services: '服务介绍',
+      contactInfo: '联系方式',
+      address: '地址',
+      phone: '电话',
+      email: '邮箱',
+      businessHours: '营业时间',
+      icpInfo: '备案信息',
+      icpLicense: 'ICP备案号',
+    },
+    contact: {
+      title: '联系我们',
+      subtitle: '如有疑问，欢迎随时联系我们',
+      customerService: '客服联系方式',
+      phone: '客服电话',
+      email: '客服邮箱',
+      wechat: '微信客服',
+      workingHours: '工作时间',
+      companyAddress: '公司地址',
+      postalCode: '邮政编码',
+      faq: '常见问题',
+      faqDescription: '查看常见问题解答，快速找到您需要的答案',
+      viewFaq: '查看常见问题',
+    },
+  },
+
+  // Footer
+  footer: {
+    quickLinks: '快捷链接',
+    aboutUs: '关于我们',
+    contactUs: '联系我们',
+    contact: '联系方式',
+    allRightsReserved: '版权所有',
   },
 
 }

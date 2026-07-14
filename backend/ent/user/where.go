@@ -1639,6 +1639,75 @@ func HasPlatformQuotasWith(preds ...predicate.UserPlatformQuota) predicate.User 
 	})
 }
 
+// HasConversations applies the HasEdge predicate on the "conversations" edge.
+func HasConversations() predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, ConversationsTable, ConversationsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasConversationsWith applies the HasEdge predicate on the "conversations" edge with a given conditions (other predicates).
+func HasConversationsWith(preds ...predicate.Conversation) predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := newConversationsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasKnowledgeFiles applies the HasEdge predicate on the "knowledge_files" edge.
+func HasKnowledgeFiles() predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, KnowledgeFilesTable, KnowledgeFilesColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasKnowledgeFilesWith applies the HasEdge predicate on the "knowledge_files" edge with a given conditions (other predicates).
+func HasKnowledgeFilesWith(preds ...predicate.KnowledgeFile) predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := newKnowledgeFilesStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasWorkspaces applies the HasEdge predicate on the "workspaces" edge.
+func HasWorkspaces() predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, WorkspacesTable, WorkspacesColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasWorkspacesWith applies the HasEdge predicate on the "workspaces" edge with a given conditions (other predicates).
+func HasWorkspacesWith(preds ...predicate.Workspace) predicate.User {
+	return predicate.User(func(s *sql.Selector) {
+		step := newWorkspacesStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
 // HasUserAllowedGroups applies the HasEdge predicate on the "user_allowed_groups" edge.
 func HasUserAllowedGroups() predicate.User {
 	return predicate.User(func(s *sql.Selector) {

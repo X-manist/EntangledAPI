@@ -16,7 +16,10 @@ services:
   # Sub2API Application
   # ===========================================================================
   sub2api:
-    image: weishaw/sub2api:latest
+    image: deploy_sub2api:latest
+    build:
+      context: ..
+      dockerfile: Dockerfile
     container_name: sub2api
     restart: unless-stopped
     ulimits:
@@ -189,9 +192,11 @@ services:
   # PostgreSQL Database
   # ===========================================================================
   postgres:
-    image: postgres:18-alpine
+    image: docker.m.daocloud.io/library/postgres:18-alpine
     container_name: sub2api-postgres
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:5432:5432"
     ulimits:
       nofile:
         soft: 100000
@@ -226,22 +231,26 @@ services:
   # Redis Cache
   # ===========================================================================
   redis:
-    image: redis:8-alpine
+    image: docker.m.daocloud.io/library/redis:8-alpine
     container_name: sub2api-redis
     restart: unless-stopped
     ulimits:
       nofile:
         soft: 100000
         hard: 100000
+    ports:
+      - "127.0.0.1:6380:6379"
     volumes:
       - redis_data:/data
-    command: >
-      sh -c '
-        redis-server
-        --save 60 1
-        --appendonly yes
-        --appendfsync everysec
-        ${REDIS_PASSWORD:+--requirepass "$REDIS_PASSWORD"}'
+    command:
+      - sh
+      - -c
+      - |
+        if [ -n "$REDIS_PASSWORD" ]; then
+          redis-server --save 60 1 --appendonly yes --appendfsync everysec --requirepass "$REDIS_PASSWORD"
+        else
+          redis-server --save 60 1 --appendonly yes --appendfsync everysec
+        fi
     environment:
       - TZ=${TZ:-Asia/Shanghai}
       # REDISCLI_AUTH is used by redis-cli for authentication (safer than -a flag)

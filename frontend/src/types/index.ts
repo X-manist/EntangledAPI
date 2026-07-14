@@ -204,6 +204,8 @@ export interface PublicSettings {
   site_name: string
   site_logo: string
   site_subtitle: string
+  /** 站点简介（页脚 / 支付合规展示） */
+  site_description?: string
   api_base_url: string
   contact_info: string
   doc_url: string
@@ -234,6 +236,32 @@ export interface PublicSettings {
   channel_monitor_default_interval_seconds: number
   available_channels_enabled: boolean
   affiliate_enabled: boolean
+
+  // —— 支付合规 / 关于我们（公开页展示，字段均可选）——
+  about_company_name?: string
+  about_business_type?: string
+  about_registration_number?: string
+  about_business_scope?: string
+  about_description?: string
+  about_service_description?: string
+  about_service_list?: string[]
+  about_address?: string
+  about_phone?: string
+  about_email?: string
+  about_business_hours?: string
+  icp_license?: string
+  icp_license_url?: string
+
+  // —— 联系我们 ——
+  contact_phone?: string
+  contact_phone_hours?: string
+  contact_email?: string
+  contact_email_note?: string
+  contact_wechat?: string
+  contact_working_hours?: string
+  contact_address?: string
+  contact_postal_code?: string
+  contact_faq_url?: string
 }
 
 export interface AuthResponse {

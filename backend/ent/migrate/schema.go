@@ -596,6 +596,58 @@ var (
 			},
 		},
 	}
+	// ConversationsColumns holds the columns for the "conversations" table.
+	ConversationsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "deleted_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "title", Type: field.TypeString, Size: 255, Default: ""},
+		{Name: "knowledge_ids", Type: field.TypeJSON, Nullable: true},
+		{Name: "metadata", Type: field.TypeJSON, Nullable: true},
+		{Name: "user_id", Type: field.TypeInt64},
+		{Name: "workspace_id", Type: field.TypeInt64, Nullable: true},
+	}
+	// ConversationsTable holds the schema information for the "conversations" table.
+	ConversationsTable = &schema.Table{
+		Name:       "conversations",
+		Columns:    ConversationsColumns,
+		PrimaryKey: []*schema.Column{ConversationsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "conversations_users_conversations",
+				Columns:    []*schema.Column{ConversationsColumns[7]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+			{
+				Symbol:     "conversations_workspaces_conversations",
+				Columns:    []*schema.Column{ConversationsColumns[8]},
+				RefColumns: []*schema.Column{WorkspacesColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "conversation_user_id_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{ConversationsColumns[7], ConversationsColumns[1]},
+				Annotation: &entsql.IndexAnnotation{
+					Desc: true,
+				},
+			},
+			{
+				Name:    "conversation_workspace_id_updated_at",
+				Unique:  false,
+				Columns: []*schema.Column{ConversationsColumns[8], ConversationsColumns[2]},
+			},
+			{
+				Name:    "conversation_user_id_deleted_at",
+				Unique:  false,
+				Columns: []*schema.Column{ConversationsColumns[7], ConversationsColumns[3]},
+			},
+		},
+	}
 	// ErrorPassthroughRulesColumns holds the columns for the "error_passthrough_rules" table.
 	ErrorPassthroughRulesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
@@ -788,6 +840,106 @@ var (
 				Name:    "identityadoptiondecision_identity_id",
 				Unique:  false,
 				Columns: []*schema.Column{IdentityAdoptionDecisionsColumns[6]},
+			},
+		},
+	}
+	// KnowledgeFilesColumns holds the columns for the "knowledge_files" table.
+	KnowledgeFilesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "deleted_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "filename", Type: field.TypeString, Size: 255},
+		{Name: "file_type", Type: field.TypeString, Size: 50},
+		{Name: "file_size", Type: field.TypeInt64, Default: 0},
+		{Name: "storage_path", Type: field.TypeString, Size: 512},
+		{Name: "content", Type: field.TypeString, Nullable: true, Size: 2147483647},
+		{Name: "content_hash", Type: field.TypeString, Nullable: true, Size: 64},
+		{Name: "metadata", Type: field.TypeJSON, Nullable: true},
+		{Name: "status", Type: field.TypeString, Size: 20, Default: "uploaded"},
+		{Name: "user_id", Type: field.TypeInt64},
+		{Name: "workspace_id", Type: field.TypeInt64, Nullable: true},
+	}
+	// KnowledgeFilesTable holds the schema information for the "knowledge_files" table.
+	KnowledgeFilesTable = &schema.Table{
+		Name:       "knowledge_files",
+		Columns:    KnowledgeFilesColumns,
+		PrimaryKey: []*schema.Column{KnowledgeFilesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "knowledge_files_users_knowledge_files",
+				Columns:    []*schema.Column{KnowledgeFilesColumns[12]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+			{
+				Symbol:     "knowledge_files_workspaces_knowledge_files",
+				Columns:    []*schema.Column{KnowledgeFilesColumns[13]},
+				RefColumns: []*schema.Column{WorkspacesColumns[0]},
+				OnDelete:   schema.SetNull,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "knowledgefile_user_id_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{KnowledgeFilesColumns[12], KnowledgeFilesColumns[1]},
+				Annotation: &entsql.IndexAnnotation{
+					Desc: true,
+				},
+			},
+			{
+				Name:    "knowledgefile_workspace_id_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{KnowledgeFilesColumns[13], KnowledgeFilesColumns[1]},
+			},
+			{
+				Name:    "knowledgefile_user_id_deleted_at",
+				Unique:  false,
+				Columns: []*schema.Column{KnowledgeFilesColumns[12], KnowledgeFilesColumns[3]},
+			},
+			{
+				Name:    "knowledgefile_content_hash",
+				Unique:  false,
+				Columns: []*schema.Column{KnowledgeFilesColumns[9]},
+			},
+		},
+	}
+	// MessagesColumns holds the columns for the "messages" table.
+	MessagesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "role", Type: field.TypeString, Size: 20},
+		{Name: "content", Type: field.TypeString, Size: 2147483647},
+		{Name: "attachments", Type: field.TypeJSON, Nullable: true},
+		{Name: "tokens_used", Type: field.TypeInt, Default: 0},
+		{Name: "cost", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(20,8)"}},
+		{Name: "model", Type: field.TypeString, Nullable: true, Size: 100},
+		{Name: "metadata", Type: field.TypeJSON, Nullable: true},
+		{Name: "conversation_id", Type: field.TypeInt64},
+	}
+	// MessagesTable holds the schema information for the "messages" table.
+	MessagesTable = &schema.Table{
+		Name:       "messages",
+		Columns:    MessagesColumns,
+		PrimaryKey: []*schema.Column{MessagesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "messages_conversations_messages",
+				Columns:    []*schema.Column{MessagesColumns[10]},
+				RefColumns: []*schema.Column{ConversationsColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "message_conversation_id_created_at",
+				Unique:  false,
+				Columns: []*schema.Column{MessagesColumns[10], MessagesColumns[1]},
+				Annotation: &entsql.IndexAnnotation{
+					Desc: true,
+				},
 			},
 		},
 	}
@@ -1749,6 +1901,46 @@ var (
 			},
 		},
 	}
+	// WorkspacesColumns holds the columns for the "workspaces" table.
+	WorkspacesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "deleted_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "name", Type: field.TypeString, Size: 120},
+		{Name: "description", Type: field.TypeString, Default: "", SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "metadata", Type: field.TypeJSON, Nullable: true},
+		{Name: "user_id", Type: field.TypeInt64},
+	}
+	// WorkspacesTable holds the schema information for the "workspaces" table.
+	WorkspacesTable = &schema.Table{
+		Name:       "workspaces",
+		Columns:    WorkspacesColumns,
+		PrimaryKey: []*schema.Column{WorkspacesColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "workspaces_users_workspaces",
+				Columns:    []*schema.Column{WorkspacesColumns[7]},
+				RefColumns: []*schema.Column{UsersColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "workspace_user_id_updated_at",
+				Unique:  false,
+				Columns: []*schema.Column{WorkspacesColumns[7], WorkspacesColumns[2]},
+				Annotation: &entsql.IndexAnnotation{
+					Desc: true,
+				},
+			},
+			{
+				Name:    "workspace_user_id_deleted_at",
+				Unique:  false,
+				Columns: []*schema.Column{WorkspacesColumns[7], WorkspacesColumns[3]},
+			},
+		},
+	}
 	// Tables holds all the tables in the schema.
 	Tables = []*schema.Table{
 		APIKeysTable,
@@ -1762,10 +1954,13 @@ var (
 		ChannelMonitorDailyRollupsTable,
 		ChannelMonitorHistoriesTable,
 		ChannelMonitorRequestTemplatesTable,
+		ConversationsTable,
 		ErrorPassthroughRulesTable,
 		GroupsTable,
 		IdempotencyRecordsTable,
 		IdentityAdoptionDecisionsTable,
+		KnowledgeFilesTable,
+		MessagesTable,
 		PaymentAuditLogsTable,
 		PaymentOrdersTable,
 		PaymentProviderInstancesTable,
@@ -1786,6 +1981,7 @@ var (
 		UserAttributeValuesTable,
 		UserPlatformQuotasTable,
 		UserSubscriptionsTable,
+		WorkspacesTable,
 	}
 )
 
@@ -1835,6 +2031,11 @@ func init() {
 	ChannelMonitorRequestTemplatesTable.Annotation = &entsql.Annotation{
 		Table: "channel_monitor_request_templates",
 	}
+	ConversationsTable.ForeignKeys[0].RefTable = UsersTable
+	ConversationsTable.ForeignKeys[1].RefTable = WorkspacesTable
+	ConversationsTable.Annotation = &entsql.Annotation{
+		Table: "conversations",
+	}
 	ErrorPassthroughRulesTable.Annotation = &entsql.Annotation{
 		Table: "error_passthrough_rules",
 	}
@@ -1848,6 +2049,15 @@ func init() {
 	IdentityAdoptionDecisionsTable.ForeignKeys[1].RefTable = PendingAuthSessionsTable
 	IdentityAdoptionDecisionsTable.Annotation = &entsql.Annotation{
 		Table: "identity_adoption_decisions",
+	}
+	KnowledgeFilesTable.ForeignKeys[0].RefTable = UsersTable
+	KnowledgeFilesTable.ForeignKeys[1].RefTable = WorkspacesTable
+	KnowledgeFilesTable.Annotation = &entsql.Annotation{
+		Table: "knowledge_files",
+	}
+	MessagesTable.ForeignKeys[0].RefTable = ConversationsTable
+	MessagesTable.Annotation = &entsql.Annotation{
+		Table: "messages",
 	}
 	PaymentAuditLogsTable.Annotation = &entsql.Annotation{
 		Table: "payment_audit_logs",
@@ -1927,5 +2137,9 @@ func init() {
 	UserSubscriptionsTable.ForeignKeys[2].RefTable = UsersTable
 	UserSubscriptionsTable.Annotation = &entsql.Annotation{
 		Table: "user_subscriptions",
+	}
+	WorkspacesTable.ForeignKeys[0].RefTable = UsersTable
+	WorkspacesTable.Annotation = &entsql.Annotation{
+		Table: "workspaces",
 	}
 }
