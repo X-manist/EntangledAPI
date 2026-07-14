@@ -33,6 +33,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          # A dispatch is initiated after creating a custom tag. Build every
+          # artifact from that immutable tag rather than the moving default
+          # branch, otherwise a later push can leak into this Release.
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - name: Update VERSION file
         run: |
@@ -61,6 +66,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          # Keep the frontend artifact aligned with the binary source tag.
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
