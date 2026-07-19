@@ -124,6 +124,18 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 
 // openAIChatCompletionsTargetURL 解析账号的（非 Grok）Chat Completions 上游端点。
 func (s *OpenAIGatewayService) openAIChatCompletionsTargetURL(account *Account) (string, error) {
+	if account == nil {
+		return "", errors.New("OpenAI account is required")
+	}
+	if account.IsGitHubCopilot() {
+		return "", errors.New("GitHub Copilot target requires a resolved token session")
+	}
+	switch account.UpstreamProvider() {
+	case UpstreamProviderGLMCodingPlan:
+		return buildOpenAIChatCompletionsURL(GLMCodingPlanBaseURL), nil
+	case UpstreamProviderKimiCodingPlan:
+		return buildOpenAIChatCompletionsURL(KimiCodingPlanBaseURL), nil
+	}
 	baseURL := account.GetOpenAIBaseURL()
 	if baseURL == "" {
 		baseURL = "https://api.openai.com"
@@ -135,10 +147,20 @@ func (s *OpenAIGatewayService) openAIChatCompletionsTargetURL(account *Account) 
 	return buildOpenAIChatCompletionsURL(validatedURL), nil
 }
 
-// resolveCCFallbackTarget 解析两条 CC 回退路径共用的账号凭证与上游端点
-// （回退路径仅面向 APIKey 账号，凭证恒为 openai api_key）。
-func (s *OpenAIGatewayService) resolveCCFallbackTarget(account *Account) (apiKey string, targetURL string, err error) {
-	apiKey = account.GetOpenAIApiKey()
+// resolveCCFallbackTarget 解析两条 CC 回退路径共用的账号凭证与上游端点。
+// 普通兼容上游直接使用 API key；Copilot 会先换取短期会话 token。
+func (s *OpenAIGatewayService) resolveCCFallbackTarget(ctx context.Context, account *Account) (apiKey string, targetURL string, err error) {
+	if account != nil && account.IsGitHubCopilot() {
+		session, resolvedTargetURL, resolveErr := s.resolveGitHubCopilotChatSession(ctx, account)
+		if resolveErr != nil {
+			return "", "", s.githubCopilotFailoverError(ctx, account, resolveErr)
+		}
+		return session.token, resolvedTargetURL, nil
+	}
+	apiKey, _, err = s.GetAccessToken(ctx, account)
+	if err != nil {
+		return "", "", err
+	}
 	if apiKey == "" {
 		return "", "", fmt.Errorf("account %d missing api_key", account.ID)
 	}
@@ -166,6 +188,10 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 	userAgent string,
 	grokCacheIdentity string,
 ) (*http.Response, error) {
+	var observedCopilotSession githubCopilotSession
+	if account.IsGitHubCopilot() {
+		observedCopilotSession, _ = s.observeGitHubCopilotSession(account.ID, bearerToken, targetURL)
+	}
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 	upstreamReq, err := http.NewRequestWithContext(upstreamCtx, http.MethodPost, targetURL, bytes.NewReader(body))
 	releaseUpstreamCtx()
@@ -196,6 +222,9 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 
 	// 账号级请求头覆写（仅 openai api_key 账号启用时生效）
 	account.ApplyHeaderOverrides(upstreamReq.Header)
+	if account.IsGitHubCopilot() {
+		applyGitHubCopilotHeaders(upstreamReq.Header)
+	}
 	if account.Platform == PlatformGrok {
 		applyGrokCLIHeaders(upstreamReq.Header)
 		applyGrokCacheHeaders(upstreamReq.Header, grokCacheIdentity)
@@ -208,6 +237,28 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
+	}
+	if account.IsGitHubCopilot() && resp.StatusCode == http.StatusUnauthorized {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 8*1024))
+		_ = resp.Body.Close()
+		s.invalidateGitHubCopilotSession(account.ID, observedCopilotSession)
+		refreshedSession, refreshedTargetURL, refreshErr := s.resolveGitHubCopilotChatSession(ctx, account)
+		if refreshErr != nil {
+			return nil, s.githubCopilotFailoverError(ctx, account, refreshErr)
+		}
+		retryReq, refreshErr := http.NewRequestWithContext(upstreamReq.Context(), http.MethodPost, refreshedTargetURL, bytes.NewReader(body))
+		if refreshErr != nil {
+			return nil, s.githubCopilotFailoverError(ctx, account, newGitHubCopilotSessionError(http.StatusBadGateway, "build refreshed GitHub Copilot request", refreshErr))
+		}
+		retryReq.Header = upstreamReq.Header.Clone()
+		retryReq.Header.Set("Authorization", "Bearer "+refreshedSession.token)
+		resp, err = s.httpUpstream.Do(retryReq, proxyURL, account.ID, account.Concurrency)
+		if err != nil {
+			return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
+		}
+		if resp.StatusCode == http.StatusUnauthorized {
+			s.invalidateGitHubCopilotSession(account.ID, refreshedSession)
+		}
 	}
 	return resp, nil
 }

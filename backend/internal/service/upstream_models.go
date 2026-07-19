@@ -133,6 +133,8 @@ func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, acc
 		return s.buildAntigravityAPIKeyModelsRequest(ctx, account)
 	case account.IsGrok():
 		return s.buildGrokUpstreamModelsRequest(ctx, account)
+	case account.IsGitHubCopilot():
+		return s.buildGitHubCopilotUpstreamModelsRequest(ctx, account)
 	case account.IsOpenAI():
 		return s.buildOpenAIUpstreamModelsRequest(ctx, account)
 	case account.IsGemini():
@@ -144,6 +146,26 @@ func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, acc
 			fmt.Sprintf("Unsupported platform for upstream model sync: %s", account.Platform), nil,
 		)
 	}
+}
+
+func (s *AccountTestService) buildGitHubCopilotUpstreamModelsRequest(ctx context.Context, account *Account) (*http.Request, error) {
+	session, err := exchangeGitHubCopilotTokenAt(ctx, s.httpUpstream, account, githubCopilotTokenExchangeURL)
+	if err != nil {
+		return nil, newUpstreamModelSyncUpstreamError("Failed to authenticate with GitHub Copilot", err)
+	}
+	modelsURL, err := githubCopilotAPIEndpoint(session.apiBase, "/models")
+	if err != nil {
+		return nil, newUpstreamModelSyncConfigError("Invalid GitHub Copilot model list URL", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsURL, nil)
+	if err != nil {
+		return nil, newUpstreamModelSyncConfigError("Invalid GitHub Copilot model list URL", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", "Bearer "+session.token)
+	account.ApplyHeaderOverrides(req.Header)
+	applyGitHubCopilotHeaders(req.Header)
+	return req, nil
 }
 
 func (s *AccountTestService) buildGrokUpstreamModelsRequest(ctx context.Context, account *Account) (*http.Request, error) {

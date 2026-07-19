@@ -58,6 +58,10 @@ func (s *OpenAIGatewayService) ForwardCountTokensAsAnthropic(
 		writeAnthropicCountTokensError(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
 		return err
 	}
+	if account.IsCodingPlanProvider() {
+		writeOpenAIInputTokensFallback(c, account, prepared, 0, "coding_plan")
+		return nil
+	}
 
 	upstreamBody, err := marshalOpenAIUpstreamJSON(prepared.Request)
 	if err != nil {
@@ -107,7 +111,7 @@ func (s *OpenAIGatewayService) ForwardCountTokensAsAnthropic(
 	if resp.StatusCode >= 400 {
 		upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(respBody)))
 		if account.Type == AccountTypeOAuth && isOpenAIOAuthInputTokensUnsupported(resp.StatusCode, respBody) {
-			writeOpenAIOAuthInputTokensFallback(c, account, prepared, resp.StatusCode)
+			writeOpenAIInputTokensFallback(c, account, prepared, resp.StatusCode, "oauth_upstream_unsupported")
 			return nil
 		}
 
@@ -255,14 +259,15 @@ func isOpenAIInputTokensUnsupported(statusCode int, body []byte) bool {
 	return strings.Contains(msg, "input_tokens") && strings.Contains(msg, "not found")
 }
 
-func writeOpenAIOAuthInputTokensFallback(c *gin.Context, account *Account, prepared *openAIInputTokensCountPrepared, statusCode int) {
+func writeOpenAIInputTokensFallback(c *gin.Context, account *Account, prepared *openAIInputTokensCountPrepared, statusCode int, reason string) {
 	estimated := openAIInputTokensFallbackMinimum
 	if got, err := estimateOpenAIInputTokens(prepared.Request); err == nil {
 		if got > 0 {
 			estimated = got
 		}
-		logger.L().Info("openai count_tokens: oauth fallback to local tiktoken estimate",
+		logger.L().Info("openai count_tokens: local tiktoken estimate",
 			zap.Int64("account_id", account.ID),
+			zap.String("reason", reason),
 			zap.Int("upstream_status", statusCode),
 			zap.Int("estimated_input_tokens", estimated),
 			zap.String("upstream_model", prepared.UpstreamModel),

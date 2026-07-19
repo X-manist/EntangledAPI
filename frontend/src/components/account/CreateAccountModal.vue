@@ -73,10 +73,10 @@
         <div class="mt-2 flex flex-wrap rounded-lg bg-gray-100 p-1 dark:bg-dark-700" data-tour="account-form-platform">
           <button
             type="button"
-            @click="form.platform = 'anthropic'"
+            @click="selectPlatform('anthropic')"
             :class="[
               'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
-              form.platform === 'anthropic'
+              form.platform === 'anthropic' && !codingPlanProvider
                 ? 'bg-white text-orange-600 shadow-sm dark:bg-dark-600 dark:text-orange-400'
                 : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
             ]"
@@ -86,10 +86,10 @@
           </button>
           <button
             type="button"
-            @click="form.platform = 'openai'"
+            @click="selectPlatform('openai')"
             :class="[
               'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
-              form.platform === 'openai'
+              form.platform === 'openai' && !codingPlanProvider
                 ? 'bg-white text-green-600 shadow-sm dark:bg-dark-600 dark:text-green-400'
                 : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
             ]"
@@ -111,10 +111,10 @@
           </button>
           <button
             type="button"
-            @click="form.platform = 'gemini'"
+            @click="selectPlatform('gemini')"
             :class="[
               'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
-              form.platform === 'gemini'
+              form.platform === 'gemini' && !codingPlanProvider
                 ? 'bg-white text-blue-600 shadow-sm dark:bg-dark-600 dark:text-blue-400'
                 : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
             ]"
@@ -136,10 +136,10 @@
           </button>
           <button
             type="button"
-            @click="form.platform = 'antigravity'"
+            @click="selectPlatform('antigravity')"
             :class="[
               'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
-              form.platform === 'antigravity'
+              form.platform === 'antigravity' && !codingPlanProvider
                 ? 'bg-white text-purple-600 shadow-sm dark:bg-dark-600 dark:text-purple-400'
                 : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
             ]"
@@ -149,16 +149,54 @@
           </button>
           <button
             type="button"
-            @click="form.platform = 'grok'"
+            @click="selectPlatform('grok')"
             :class="[
               'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
-              form.platform === 'grok'
+              form.platform === 'grok' && !codingPlanProvider
                 ? 'bg-white text-zinc-900 shadow-sm dark:bg-dark-600 dark:text-zinc-100'
                 : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
             ]"
           >
             <PlatformIcon platform="grok" size="sm" />
             Grok
+          </button>
+        </div>
+      </div>
+
+      <div>
+        <label class="input-label">{{ t('admin.accounts.codingPlans.title') }}</label>
+        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <button
+            v-for="preset in codingPlanProviderPresets"
+            :key="preset.id"
+            type="button"
+            :data-testid="`coding-plan-${preset.id}`"
+            @click="selectCodingPlanProvider(preset.id)"
+            :class="[
+              'flex min-h-16 items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              codingPlanProvider === preset.id
+                ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
+                : 'border-gray-200 hover:border-primary-300 dark:border-dark-600 dark:hover:border-primary-700'
+            ]"
+          >
+            <span
+              :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-md',
+                codingPlanProvider === preset.id
+                  ? 'bg-primary-500 text-white'
+                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+              ]"
+            >
+              <Icon name="key" size="sm" />
+            </span>
+            <span class="min-w-0">
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">
+                {{ preset.label }}
+              </span>
+              <span class="block text-xs text-gray-500 dark:text-gray-400">
+                {{ t(`admin.accounts.codingPlans.providers.${preset.id}.credential`) }}
+              </span>
+            </span>
           </button>
         </div>
       </div>
@@ -294,7 +332,7 @@
       </div>
 
       <!-- Account Type Selection (OpenAI) -->
-      <div v-if="form.platform === 'openai'">
+      <div v-if="form.platform === 'openai' && !codingPlanProvider">
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
         <div class="mt-2 grid grid-cols-2 gap-3" data-tour="account-form-type">
           <button
@@ -1100,12 +1138,14 @@
 
       <!-- API Key input (only for apikey type, excluding Antigravity which has its own fields) -->
       <div v-if="form.type === 'apikey' && form.platform !== 'antigravity'" class="space-y-4">
-        <div>
+        <div v-if="!isGitHubCopilot">
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
             v-model="apiKeyBaseUrl"
             type="text"
             class="input"
+            data-testid="api-key-base-url"
+            :readonly="isCodingPlanProvider"
             :placeholder="
               form.platform === 'openai'
                 ? 'https://api.openai.com'
@@ -1119,20 +1159,21 @@
           <p v-if="baseUrlHint" class="input-hint">{{ baseUrlHint }}</p>
         </div>
         <div>
-          <label class="input-label">{{ t('admin.accounts.apiKeyRequired') }}</label>
+          <label class="input-label">{{ codingPlanCredentialLabel }}</label>
           <input
             v-model="apiKeyValue"
             type="password"
             required
             class="input font-mono"
+            data-testid="api-key-value"
             :placeholder="
-              form.platform === 'openai'
+              codingPlanCredentialPlaceholder || (form.platform === 'openai'
                 ? 'sk-proj-...'
                 : form.platform === 'gemini'
                   ? 'AIza...'
                   : form.platform === 'grok'
                     ? 'xai-...'
-                    : 'sk-ant-...'
+                    : 'sk-ant-...')
             "
           />
           <p v-if="apiKeyHint" class="input-hint">{{ apiKeyHint }}</p>
@@ -1148,8 +1189,26 @@
           <p class="input-hint">{{ t('admin.accounts.gemini.tier.aiStudioHint') }}</p>
         </div>
 
+        <div
+          v-if="codingPlanPreset"
+          class="border-t border-gray-200 pt-4 dark:border-dark-600"
+          data-testid="coding-plan-models"
+        >
+          <label class="input-label">{{ t('admin.accounts.codingPlans.strictModels') }}</label>
+          <div class="mt-2 flex flex-wrap gap-2">
+            <span
+              v-for="model in codingPlanDisplayModels"
+              :key="model"
+              class="rounded bg-gray-100 px-2 py-1 font-mono text-xs text-gray-700 dark:bg-dark-600 dark:text-gray-300"
+            >
+              {{ model }}
+            </span>
+          </div>
+          <p class="input-hint">{{ t('admin.accounts.codingPlans.strictModelsHint') }}</p>
+        </div>
+
         <!-- Model Restriction Section (Antigravity 已在上层条件排除) -->
-        <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div v-else class="border-t border-gray-200 pt-4 dark:border-dark-600">
           <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
 
           <div
@@ -2706,7 +2765,7 @@
 
       <!-- OpenAI 自动透传开关（OAuth/API Key） -->
       <div
-        v-if="form.platform === 'openai'"
+        v-if="form.platform === 'openai' && !codingPlanProvider"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -2736,7 +2795,7 @@
 
       <!-- OpenAI WS Mode 三态（off/ctx_pool/passthrough） -->
       <div
-        v-if="form.platform === 'openai' && (accountCategory === 'oauth-based' || accountCategory === 'apikey')"
+        v-if="form.platform === 'openai' && !codingPlanProvider && (accountCategory === 'oauth-based' || accountCategory === 'apikey')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -2825,7 +2884,7 @@
 
       <!-- OpenAI OAuth Codex 官方客户端限制开关 -->
       <div
-        v-if="form.platform === 'openai' && (accountCategory === 'oauth-based' || accountCategory === 'apikey')"
+        v-if="form.platform === 'openai' && !codingPlanProvider && (accountCategory === 'oauth-based' || accountCategory === 'apikey')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between gap-4">
@@ -2913,7 +2972,7 @@
 
       <!-- OpenAI Compact 能力配置 -->
       <div
-        v-if="form.platform === 'openai' && (accountCategory === 'oauth-based' || accountCategory === 'apikey')"
+        v-if="form.platform === 'openai' && !codingPlanProvider && (accountCategory === 'oauth-based' || accountCategory === 'apikey')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
       >
         <div class="flex items-center justify-between">
@@ -2952,7 +3011,7 @@
 
       <!-- OpenAI APIKey Responses API support mode -->
       <div
-        v-if="form.platform === 'openai' && accountCategory === 'apikey'"
+        v-if="form.platform === 'openai' && !codingPlanProvider && accountCategory === 'apikey'"
         class="space-y-4 border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between gap-4">
@@ -3480,6 +3539,7 @@ import type {
   CheckMixedChannelResponse,
   CreateAccountRequest,
   CodexSessionImportMessage,
+  CodingPlanUpstreamProvider,
   OpenAICompactMode,
   OpenAIResponsesMode,
   OpenAIEndpointCapability
@@ -3505,6 +3565,12 @@ import {
 } from '@/components/account/credentialsBuilder'
 import { formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
+import {
+  buildCodingPlanCredentials,
+  codingPlanProviderPresets,
+  getCodingPlanDisplayModels,
+  getCodingPlanProviderPreset
+} from '@/utils/codingPlanProviders'
 import { VERTEX_LOCATION_OPTIONS } from '@/constants/account'
 import {
   OPENAI_WS_MODE_CTX_POOL,
@@ -3535,6 +3601,21 @@ interface OAuthFlowExposed {
 
 const { t } = useI18n()
 const authStore = useAuthStore()
+const codingPlanProvider = ref<CodingPlanUpstreamProvider | null>(null)
+const codingPlanPreset = computed(() => getCodingPlanProviderPreset(codingPlanProvider.value))
+const isCodingPlanProvider = computed(() => Boolean(codingPlanPreset.value))
+const isGitHubCopilot = computed(() => codingPlanProvider.value === 'github_copilot')
+const codingPlanDisplayModels = computed(() =>
+  codingPlanPreset.value ? getCodingPlanDisplayModels(codingPlanPreset.value) : []
+)
+const codingPlanCredentialLabel = computed(() => {
+  if (!codingPlanProvider.value) return t('admin.accounts.apiKeyRequired')
+  return t(`admin.accounts.codingPlans.providers.${codingPlanProvider.value}.credentialRequired`)
+})
+const codingPlanCredentialPlaceholder = computed(() => {
+  if (!codingPlanProvider.value) return ''
+  return t(`admin.accounts.codingPlans.providers.${codingPlanProvider.value}.placeholder`)
+})
 
 const oauthStepTitle = computed(() => {
   if (form.platform === 'openai') return t('admin.accounts.oauth.openai.title')
@@ -3546,6 +3627,9 @@ const oauthStepTitle = computed(() => {
 
 // Platform-specific hints for API Key type
 const baseUrlHint = computed(() => {
+  if (codingPlanProvider.value) {
+    return t(`admin.accounts.codingPlans.providers.${codingPlanProvider.value}.baseUrlHint`)
+  }
   if (form.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
   if (form.platform === 'grok') return ''
@@ -3553,6 +3637,9 @@ const baseUrlHint = computed(() => {
 })
 
 const apiKeyHint = computed(() => {
+  if (codingPlanProvider.value) {
+    return t(`admin.accounts.codingPlans.providers.${codingPlanProvider.value}.credentialHint`)
+  }
   if (form.platform === 'openai') return t('admin.accounts.openai.apiKeyHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.apiKeyHint')
   if (form.platform === 'grok') return ''
@@ -3637,7 +3724,55 @@ const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
 
+const selectPlatform = (platform: AccountPlatform) => {
+  const leavingCodingPlan = Boolean(codingPlanProvider.value)
+  const changingPlatform = form.platform !== platform
+  if (!leavingCodingPlan && !changingPlatform) return
+
+  // This field is shared by every API-key provider. Never carry a secret
+  // across upstream identities, or it could be submitted to the wrong host.
+  apiKeyValue.value = ''
+  codingPlanProvider.value = null
+  if (changingPlatform) {
+    form.platform = platform
+  }
+  if (leavingCodingPlan) {
+    accountCategory.value = 'oauth-based'
+    modelRestrictionMode.value = 'whitelist'
+    allowedModels.value = []
+    modelMappings.value = []
+    openAIResponsesMode.value = 'auto'
+    openAIEndpointCapabilities.value = ['chat_completions', 'embeddings']
+  }
+  // Leaving a Coding Plan for normal OpenAI does not change form.platform, so
+  // the platform watcher cannot restore the regular OpenAI default for us.
+  if (leavingCodingPlan && platform === 'openai') {
+    apiKeyBaseUrl.value = 'https://api.openai.com'
+  }
+}
+
+const selectCodingPlanProvider = (provider: CodingPlanUpstreamProvider) => {
+  const preset = getCodingPlanProviderPreset(provider)
+  if (!preset) return
+  if (codingPlanProvider.value === provider) return
+
+  // Switching from a regular API-key account or another Coding Plan changes
+  // the upstream receiving the credential, so require the user to re-enter it.
+  apiKeyValue.value = ''
+  codingPlanProvider.value = provider
+  form.platform = 'openai'
+  accountCategory.value = 'apikey'
+  apiKeyBaseUrl.value = preset.baseUrl || ''
+  modelRestrictionMode.value = 'mapping'
+  allowedModels.value = []
+  modelMappings.value = []
+  openaiPassthroughEnabled.value = false
+  openAIResponsesMode.value = 'force_chat_completions'
+  openAIEndpointCapabilities.value = ['chat_completions']
+}
+
 const syncPreviewCredentials = computed(() => {
+  if (isCodingPlanProvider.value) return undefined
   if (!apiKeyValue.value) return undefined
   return {
     platform: form.platform,
@@ -4109,14 +4244,16 @@ watch(
   () => form.platform,
   (newPlatform) => {
     // Reset base URL based on platform
-    apiKeyBaseUrl.value =
-      (newPlatform === 'openai')
-        ? 'https://api.openai.com'
-        : newPlatform === 'gemini'
-          ? 'https://generativelanguage.googleapis.com'
-          : newPlatform === 'grok'
-            ? 'https://api.x.ai/v1'
-            : 'https://api.anthropic.com'
+    const selectedCodingPlanPreset = getCodingPlanProviderPreset(codingPlanProvider.value)
+    apiKeyBaseUrl.value = selectedCodingPlanPreset
+      ? selectedCodingPlanPreset.baseUrl || ''
+      : (newPlatform === 'openai')
+          ? 'https://api.openai.com'
+          : newPlatform === 'gemini'
+            ? 'https://generativelanguage.googleapis.com'
+            : newPlatform === 'grok'
+              ? 'https://api.x.ai/v1'
+              : 'https://api.anthropic.com'
     // Clear model-related settings
     allowedModels.value = []
     modelMappings.value = []
@@ -4530,6 +4667,7 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
 // Methods
 const resetForm = () => {
   step.value = 1
+  codingPlanProvider.value = null
   form.name = ''
   form.notes = ''
   form.platform = 'anthropic'
@@ -4644,6 +4782,12 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
   }
 
   const extra: Record<string, unknown> = { ...(base || {}) }
+  if (codingPlanProvider.value) {
+    extra.upstream_provider = codingPlanProvider.value
+    extra.openai_responses_mode = 'force_chat_completions'
+    delete extra.openai_responses_supported
+    return extra
+  }
   if (accountCategory.value === 'oauth-based') {
     extra.openai_oauth_responses_websockets_v2_mode = openaiOAuthResponsesWebSocketV2Mode.value
     extra.openai_oauth_responses_websockets_v2_enabled = isOpenAIWSModeEnabled(openaiOAuthResponsesWebSocketV2Mode.value)
@@ -4969,6 +5113,8 @@ const handleSubmit = async () => {
     return
   }
 
+  const selectedCodingPlanPreset = codingPlanPreset.value
+
   // Determine default base URL based on platform
   const defaultBaseUrl =
     form.platform === 'openai'
@@ -4980,22 +5126,24 @@ const handleSubmit = async () => {
           : 'https://api.anthropic.com'
 
   // Build credentials with optional model mapping
-  const credentials: Record<string, unknown> = {
-    base_url: apiKeyBaseUrl.value.trim() || defaultBaseUrl,
-    api_key: apiKeyValue.value.trim()
-  }
+  const credentials: Record<string, unknown> = selectedCodingPlanPreset
+    ? buildCodingPlanCredentials(selectedCodingPlanPreset, apiKeyValue.value.trim())
+    : {
+        base_url: apiKeyBaseUrl.value.trim() || defaultBaseUrl,
+        api_key: apiKeyValue.value.trim()
+      }
   if (form.platform === 'gemini') {
     credentials.tier_id = geminiTierAIStudio.value
   }
 
   // Add model mapping if configured（OpenAI 开启自动透传时不应用）
-  if (!isOpenAIModelRestrictionDisabled.value) {
+  if (!selectedCodingPlanPreset && !isOpenAIModelRestrictionDisabled.value) {
     const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
     if (modelMapping) {
       credentials.model_mapping = modelMapping
     }
   }
-  if (form.platform === 'openai') {
+  if (form.platform === 'openai' && !selectedCodingPlanPreset) {
     applyOpenAIEndpointCapabilities(credentials)
     const compactModelMapping = buildOpenAICompactModelMapping()
     if (compactModelMapping) {

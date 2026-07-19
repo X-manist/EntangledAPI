@@ -88,6 +88,10 @@ const openAILongContextBillingEnabledKey = "openai_long_context_billing_enabled"
 const (
 	OpenAIEndpointCapabilityChatCompletions OpenAIEndpointCapability = "chat_completions"
 	OpenAIEndpointCapabilityEmbeddings      OpenAIEndpointCapability = "embeddings"
+	// Internal routing guards for native OpenAI endpoints that Coding Plan
+	// providers do not implement.
+	OpenAIEndpointCapabilityAlphaSearch        OpenAIEndpointCapability = "alpha_search"
+	OpenAIEndpointCapabilityResponsesWebSocket OpenAIEndpointCapability = "responses_websocket"
 )
 
 const openAIEndpointCapabilitiesCredentialKey = "openai_capabilities"
@@ -817,6 +821,9 @@ func (a *Account) OpenAICompactSupportKnown() (supported bool, known bool) {
 	if a == nil || !a.IsOpenAI() {
 		return false, false
 	}
+	if a.IsCodingPlanProvider() {
+		return false, true
+	}
 
 	switch a.GetOpenAICompactMode() {
 	case OpenAICompactModeForceOn:
@@ -1238,6 +1245,15 @@ func (a *Account) GetOpenAIBaseURL() string {
 	if !a.IsOpenAI() {
 		return ""
 	}
+	if a.IsGitHubCopilot() {
+		return ""
+	}
+	switch a.UpstreamProvider() {
+	case UpstreamProviderGLMCodingPlan:
+		return GLMCodingPlanBaseURL
+	case UpstreamProviderKimiCodingPlan:
+		return KimiCodingPlanBaseURL
+	}
 	if a.Type == AccountTypeAPIKey {
 		baseURL := a.GetCredential("base_url")
 		if baseURL != "" {
@@ -1361,7 +1377,7 @@ func (a *Account) GetOpenAIIDToken() string {
 }
 
 func (a *Account) GetOpenAIApiKey() string {
-	if !a.IsOpenAIApiKey() {
+	if !a.IsOpenAIApiKey() || a.IsGitHubCopilot() {
 		return ""
 	}
 	return a.GetCredential("api_key")
@@ -1442,6 +1458,11 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 		if a.Type != AccountTypeAPIKey {
 			return false
 		}
+	case OpenAIEndpointCapabilityAlphaSearch, OpenAIEndpointCapabilityResponsesWebSocket:
+		// The persisted capability list predates these route-specific guards and
+		// cannot express them in the admin UI. Normal OpenAI accounts retain their
+		// existing behavior; Coding Plan accounts are explicitly excluded.
+		return !a.IsCodingPlanProvider()
 	default:
 		return false
 	}
@@ -1505,6 +1526,9 @@ func (a *Account) SupportsOpenAIImageCapability(capability OpenAIImagesCapabilit
 		return true
 	}
 	if !a.IsOpenAI() {
+		return false
+	}
+	if a.IsCodingPlanProvider() {
 		return false
 	}
 	switch capability {
@@ -1583,7 +1607,7 @@ func (a *Account) IsOveragesEnabled() bool {
 // 兼容字段：accounts.extra.openai_oauth_passthrough（历史 OAuth 开关）。
 // 字段缺失或类型不正确时，按 false（关闭）处理。
 func (a *Account) IsOpenAIPassthroughEnabled() bool {
-	if a == nil || !a.IsOpenAI() || a.Extra == nil {
+	if a == nil || !a.IsOpenAI() || a.IsCodingPlanProvider() || a.Extra == nil {
 		return false
 	}
 	if enabled, ok := a.Extra["openai_passthrough"].(bool); ok {

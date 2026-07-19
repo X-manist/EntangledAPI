@@ -184,6 +184,9 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	}
 
 	// Route to platform-specific test method
+	if account.IsGitHubCopilot() {
+		return s.testGitHubCopilotAccountConnection(c, account, modelID, prompt)
+	}
 	if account.IsOpenAI() {
 		return s.testOpenAIAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode))
 	}
@@ -659,6 +662,20 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	return s.processOpenAIStream(c, resp.Body)
 }
 
+func (s *AccountTestService) testGitHubCopilotAccountConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
+	ctx := c.Request.Context()
+	testModelID := strings.TrimSpace(modelID)
+	if testModelID == "" {
+		testModelID = githubCopilotDefaultModel
+	}
+	testModelID = account.GetMappedModel(testModelID)
+	session, err := exchangeGitHubCopilotTokenAt(ctx, s.httpUpstream, account, githubCopilotTokenExchangeURL)
+	if err != nil {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("GitHub Copilot authentication failed: %s", err.Error()))
+	}
+	return s.testOpenAIChatCompletionsConnection(c, account, testModelID, prompt, session.apiBase, session.token)
+}
+
 // testGrokAccountConnection tests a Grok OAuth or API-key account through xAI's Responses API.
 func (s *AccountTestService) testGrokAccountConnection(c *gin.Context, account *Account, modelID string) error {
 	ctx := c.Request.Context()
@@ -772,6 +789,13 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 ) error {
 	ctx := c.Request.Context()
 	apiURL := buildOpenAIChatCompletionsURL(normalizedBaseURL)
+	if account.IsGitHubCopilot() {
+		var err error
+		apiURL, err = githubCopilotAPIEndpoint(normalizedBaseURL, "/chat/completions")
+		if err != nil {
+			return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid GitHub Copilot endpoint: %s", err.Error()))
+		}
+	}
 
 	c.Writer.Header().Set("Content-Type", "text/event-stream")
 	c.Writer.Header().Set("Cache-Control", "no-cache")
@@ -796,6 +820,9 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 
 	// 账号级请求头覆写：测试请求与真实转发保持一致的最终头
 	account.ApplyHeaderOverrides(req.Header)
+	if account.IsGitHubCopilot() {
+		applyGitHubCopilotHeaders(req.Header)
+	}
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {

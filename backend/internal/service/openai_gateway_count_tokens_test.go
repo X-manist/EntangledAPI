@@ -177,10 +177,42 @@ func TestOpenAIGatewayService_OpenAIOAuthInputTokensFallbackUsesMinimumWhenEstim
 		UpstreamModel: "gpt-5",
 	}
 
-	writeOpenAIOAuthInputTokensFallback(c, &Account{ID: 303}, prepared, http.StatusUnauthorized)
+	writeOpenAIInputTokensFallback(c, &Account{ID: 303}, prepared, http.StatusUnauthorized, "test")
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.JSONEq(t, `{"input_tokens":1}`, rec.Body.String())
+}
+
+func TestOpenAIGatewayService_ForwardCountTokensAsAnthropic_CodingPlanUsesLocalEstimate(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := []byte(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hello coding plan"}]}`)
+	account := &Account{
+		ID:       304,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Extra:    map[string]any{UpstreamProviderExtraKey: UpstreamProviderGitHubCopilot},
+		Credentials: map[string]any{
+			"api_key": "github_pat_must_not_be_exchanged",
+			"model_mapping": map[string]any{
+				"claude-sonnet-4-6": "claude-sonnet-4.6",
+			},
+		},
+	}
+	prepared, err := prepareOpenAIInputTokensCountRequest(body, account, "")
+	require.NoError(t, err)
+	expected, err := estimateOpenAIInputTokens(prepared.Request)
+	require.NoError(t, err)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages/count_tokens", bytes.NewReader(body))
+	upstream := &httpUpstreamRecorder{}
+	svc := &OpenAIGatewayService{httpUpstream: upstream}
+
+	require.NoError(t, svc.ForwardCountTokensAsAnthropic(context.Background(), c, account, body, ""))
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.JSONEq(t, `{"input_tokens":`+strconv.Itoa(expected)+`}`, rec.Body.String())
+	require.Nil(t, upstream.lastReq, "coding plan count_tokens must not exchange or forward credentials")
 }
 
 func TestEstimateOpenAIInputTokens_RequestSamples(t *testing.T) {

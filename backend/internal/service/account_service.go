@@ -156,6 +156,11 @@ func NewAccountService(accountRepo AccountRepository, groupRepo GroupRepository)
 
 // Create 创建账号
 func (s *AccountService) Create(ctx context.Context, req CreateAccountRequest) (*Account, error) {
+	var err error
+	req.Credentials, req.Extra, err = normalizeCodingPlanAccount(req.Platform, req.Type, req.Credentials, req.Extra)
+	if err != nil {
+		return nil, err
+	}
 	// 验证分组是否存在（如果指定了分组）
 	if len(req.GroupIDs) > 0 {
 		if err := s.validateGroupIDsExist(ctx, req.GroupIDs); err != nil {
@@ -266,7 +271,11 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 	}
 
 	if req.Extra != nil {
-		account.Extra = *req.Extra
+		nextExtra := *req.Extra
+		if err := preserveCodingPlanProviderOnUpdate(account, nextExtra); err != nil {
+			return nil, err
+		}
+		account.Extra = nextExtra
 	}
 
 	if req.ProxyID != nil {
@@ -289,6 +298,10 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 	}
 	if req.AutoPauseOnExpired != nil {
 		account.AutoPauseOnExpired = *req.AutoPauseOnExpired
+	}
+	account.Credentials, account.Extra, err = normalizeCodingPlanAccount(account.Platform, account.Type, account.Credentials, account.Extra)
+	if err != nil {
+		return nil, err
 	}
 
 	// 先验证分组是否存在（在任何写操作之前）

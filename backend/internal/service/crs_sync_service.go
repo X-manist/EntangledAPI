@@ -70,6 +70,37 @@ func guardCRSShadowParentInvariant(ctx context.Context, repo AccountRepository, 
 	return nil
 }
 
+// normalizeCRSCodingPlanAccount applies the same Coding Plan invariants as the
+// admin account write paths before CRS writes directly to the repository.
+//
+// Existing Coding Plan accounts are matched by the globally scoped
+// crs_account_id. Require CRS to explicitly declare the matching provider so a
+// plain OpenAI record cannot overwrite its credentials by collision. The
+// shared preserve/normalize helpers then validate provider immutability, reject
+// non-OpenAI-API-key targets, and restore provider-specific capabilities.
+func normalizeCRSCodingPlanAccount(
+	existing *Account,
+	newPlatform string,
+	newType string,
+	credentials map[string]any,
+	extra map[string]any,
+) (map[string]any, map[string]any, error) {
+	if existing != nil && existing.IsCodingPlanProvider() {
+		if extra == nil {
+			return nil, nil, errors.New("CRS updates to coding plan accounts must explicitly declare the matching upstream_provider")
+		}
+		if _, exists := extra[UpstreamProviderExtraKey]; !exists {
+			return nil, nil, errors.New("CRS updates to coding plan accounts must explicitly declare the matching upstream_provider")
+		}
+	}
+	if existing != nil {
+		if err := preserveCodingPlanProviderOnUpdate(existing, extra); err != nil {
+			return nil, nil, err
+		}
+	}
+	return normalizeCodingPlanAccount(newPlatform, newType, credentials, extra)
+}
+
 type SyncFromCRSInput struct {
 	BaseURL            string
 	Username           string
@@ -363,6 +394,14 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 			result.Items = append(result.Items, item)
 			continue
 		}
+		credentials, extra, err = normalizeCRSCodingPlanAccount(existing, PlatformAnthropic, targetType, credentials, extra)
+		if err != nil {
+			item.Action = "failed"
+			item.Error = err.Error()
+			result.Failed++
+			result.Items = append(result.Items, item)
+			continue
+		}
 
 		if existing == nil {
 			if !shouldCreateAccount(src.ID, selectedSet) {
@@ -490,6 +529,14 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 		if err != nil {
 			item.Action = "failed"
 			item.Error = "db lookup failed: " + err.Error()
+			result.Failed++
+			result.Items = append(result.Items, item)
+			continue
+		}
+		credentials, extra, err = normalizeCRSCodingPlanAccount(existing, PlatformAnthropic, AccountTypeAPIKey, credentials, extra)
+		if err != nil {
+			item.Action = "failed"
+			item.Error = err.Error()
 			result.Failed++
 			result.Items = append(result.Items, item)
 			continue
@@ -633,6 +680,14 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 			result.Items = append(result.Items, item)
 			continue
 		}
+		credentials, extra, err = normalizeCRSCodingPlanAccount(existing, PlatformOpenAI, AccountTypeOAuth, credentials, extra)
+		if err != nil {
+			item.Action = "failed"
+			item.Error = err.Error()
+			result.Failed++
+			result.Items = append(result.Items, item)
+			continue
+		}
 		var existingExtra map[string]any
 		if existing != nil {
 			existingExtra = existing.Extra
@@ -738,12 +793,6 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 			continue
 		}
 
-		if baseURL, ok := src.Credentials["base_url"].(string); !ok || strings.TrimSpace(baseURL) == "" {
-			src.Credentials["base_url"] = "https://api.openai.com"
-		}
-		// 🔧 Remove /v1 suffix from base_url for OpenAI accounts
-		cleanBaseURL(src.Credentials, "/v1")
-
 		proxyID, err := s.mapOrCreateProxy(
 			ctx,
 			input.SyncProxies,
@@ -780,6 +829,14 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 			result.Items = append(result.Items, item)
 			continue
 		}
+		credentials, extra, err = normalizeCRSCodingPlanAccount(existing, PlatformOpenAI, AccountTypeAPIKey, credentials, extra)
+		if err != nil {
+			item.Action = "failed"
+			item.Error = err.Error()
+			result.Failed++
+			result.Items = append(result.Items, item)
+			continue
+		}
 		var existingExtra map[string]any
 		if existing != nil {
 			existingExtra = existing.Extra
@@ -791,6 +848,16 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 			result.Failed++
 			result.Items = append(result.Items, item)
 			continue
+		}
+		// The Kimi Coding Plan official endpoint intentionally ends in /v1.
+		// Apply the legacy OpenAI base URL cleanup only after provider
+		// normalization has established that this is an ordinary API-key account.
+		normalizedAccount := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Extra: extra}
+		if !normalizedAccount.IsCodingPlanProvider() {
+			if baseURL, ok := credentials["base_url"].(string); !ok || strings.TrimSpace(baseURL) == "" {
+				credentials["base_url"] = "https://api.openai.com"
+			}
+			cleanBaseURL(credentials, "/v1")
 		}
 
 		if existing == nil {
@@ -917,6 +984,14 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 			result.Items = append(result.Items, item)
 			continue
 		}
+		credentials, extra, err = normalizeCRSCodingPlanAccount(existing, PlatformGemini, AccountTypeOAuth, credentials, extra)
+		if err != nil {
+			item.Action = "failed"
+			item.Error = err.Error()
+			result.Failed++
+			result.Items = append(result.Items, item)
+			continue
+		}
 
 		if existing == nil {
 			if !shouldCreateAccount(src.ID, selectedSet) {
@@ -1038,6 +1113,14 @@ func (s *CRSSyncService) SyncFromCRS(ctx context.Context, input SyncFromCRSInput
 		if err != nil {
 			item.Action = "failed"
 			item.Error = "db lookup failed: " + err.Error()
+			result.Failed++
+			result.Items = append(result.Items, item)
+			continue
+		}
+		credentials, extra, err = normalizeCRSCodingPlanAccount(existing, PlatformGemini, AccountTypeAPIKey, credentials, extra)
+		if err != nil {
+			item.Action = "failed"
+			item.Error = err.Error()
 			result.Failed++
 			result.Items = append(result.Items, item)
 			continue

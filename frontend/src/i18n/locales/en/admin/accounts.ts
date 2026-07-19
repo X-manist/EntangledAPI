@@ -395,6 +395,36 @@ export default {
       apiKeyRequired: 'API Key *',
       apiKeyPlaceholder: 'sk-ant-api03-...',
       apiKeyHint: 'Your Claude Console API Key',
+      codingPlans: {
+        title: 'Coding Plans',
+        strictModels: 'Preset models',
+        strictModelsHint:
+          'Actual availability depends on the account subscription, organization policy, and upstream authorization.',
+        providers: {
+          glm_coding_plan: {
+            credential: 'GLM Coding Plan key',
+            credentialRequired: 'GLM Coding Plan key *',
+            placeholder: 'Enter your GLM Coding Plan key',
+            credentialHint: 'The API key included with your GLM Coding Plan subscription.',
+            baseUrlHint: 'The official GLM Coding Plan endpoint is fixed for this account.'
+          },
+          kimi_coding_plan: {
+            credential: 'Kimi Coding Plan key',
+            credentialRequired: 'Kimi Coding Plan key *',
+            placeholder: 'Enter your Kimi Coding Plan key',
+            credentialHint: 'The API key included with your Kimi Coding Plan subscription.',
+            baseUrlHint: 'The official Kimi Coding Plan endpoint is fixed for this account.'
+          },
+          github_copilot: {
+            credential: 'GitHub token',
+            credentialRequired: 'GitHub token *',
+            placeholder: 'ghu_... or github_pat_...',
+            credentialHint:
+              'A fine-grained PAT is recommended. Grant the target account Copilot Requests permission.',
+            baseUrlHint: ''
+          }
+        }
+      },
       // OpenAI specific hints
       openai: {
         baseUrlHint: 'Leave default for official OpenAI API',

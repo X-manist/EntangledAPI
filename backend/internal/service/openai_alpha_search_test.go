@@ -143,3 +143,26 @@ func TestForwardAlphaSearchReturnsFailoverBeforeWriting(t *testing.T) {
 	require.False(t, c.Writer.Written())
 	require.Empty(t, recorder.Body.String())
 }
+
+func TestForwardAlphaSearchRejectsCodingPlanBeforeCredentialUse(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := []byte(`{"model":"gpt-5.4"}`)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/alpha/search", bytes.NewReader(body))
+	upstream := &httpUpstreamRecorder{}
+	service := &OpenAIGatewayService{httpUpstream: upstream}
+	account := &Account{
+		ID:          9,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Extra:       map[string]any{UpstreamProviderExtraKey: UpstreamProviderGitHubCopilot},
+		Credentials: map[string]any{"api_key": "github_pat_must_not_leave_github"},
+	}
+
+	result, err := service.ForwardAlphaSearch(context.Background(), c, account, body)
+
+	require.Nil(t, result)
+	require.ErrorContains(t, err, "not supported by coding plan providers")
+	require.Nil(t, upstream.lastReq)
+}

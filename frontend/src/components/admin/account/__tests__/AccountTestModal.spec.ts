@@ -216,4 +216,88 @@ describe('AccountTestModal', () => {
       mode: 'compact'
     })
   })
+
+  it.each([
+    'glm_coding_plan',
+    'kimi_coding_plan',
+    'github_copilot'
+  ])('%s 不显示 OpenAI Compact 测试模式', async (upstreamProvider) => {
+    getAvailableModels.mockResolvedValue([
+      { id: 'provider-model', display_name: 'Provider model' }
+    ])
+
+    const wrapper = mountModal({
+      id: 43,
+      name: 'Coding Plan',
+      platform: 'openai',
+      type: 'apikey',
+      status: 'active',
+      extra: { upstream_provider: upstreamProvider }
+    })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="openai-test-mode"]').exists()).toBe(false)
+  })
+
+  it('Kimi Coding Plan 固定优先测试所有套餐均可用的 kimi-for-coding', async () => {
+    getAvailableModels.mockResolvedValue([
+      { id: 'kimi-for-coding-highspeed', display_name: 'Kimi HighSpeed' },
+      { id: 'k3', display_name: 'Kimi K3' },
+      { id: 'kimi-for-coding', display_name: 'Kimi for Coding' }
+    ])
+    global.fetch = vi.fn().mockResolvedValue(
+      createStreamResponse(['data: {"type":"test_complete","success":true}\n'])
+    ) as any
+
+    const wrapper = mountModal({
+      id: 44,
+      name: 'Kimi Coding Plan',
+      platform: 'openai',
+      type: 'apikey',
+      status: 'active',
+      extra: { upstream_provider: 'kimi_coding_plan' }
+    })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+
+    await (wrapper.vm as any).startTest()
+    await flushPromises()
+
+    const [, request] = (global.fetch as any).mock.calls[0]
+    expect(JSON.parse(request.body)).toEqual({
+      model_id: 'kimi-for-coding',
+      prompt: ''
+    })
+  })
+
+  it('Coding Plan 不会把 gpt-image 模型误判为 OpenAI 图片测试', async () => {
+    getAvailableModels.mockResolvedValue([
+      { id: 'gpt-image-1', display_name: 'GPT Image' }
+    ])
+    global.fetch = vi.fn().mockResolvedValue(
+      createStreamResponse(['data: {"type":"test_complete","success":true}\n'])
+    ) as any
+
+    const wrapper = mountModal({
+      id: 45,
+      name: 'GitHub Copilot',
+      platform: 'openai',
+      type: 'apikey',
+      status: 'active',
+      extra: { upstream_provider: 'github_copilot' }
+    })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+
+    expect(wrapper.find('textarea.textarea-stub').exists()).toBe(false)
+    await (wrapper.vm as any).startTest()
+    await flushPromises()
+
+    const [, request] = (global.fetch as any).mock.calls[0]
+    expect(JSON.parse(request.body)).toEqual({
+      model_id: 'gpt-image-1',
+      prompt: ''
+    })
+  })
 })

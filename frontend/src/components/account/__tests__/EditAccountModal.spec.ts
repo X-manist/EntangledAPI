@@ -992,4 +992,41 @@ describe('EditAccountModal', () => {
       'antigravity_project_id'
     )
   })
+
+  it('preserves a redacted GitHub Copilot token and its coding plan subtype', async () => {
+    const account = buildAccount()
+    account.name = 'GitHub Copilot'
+    account.credentials = {
+      model_mapping: { 'gpt-5.4': 'gpt-5.4' },
+      openai_capabilities: ['chat_completions']
+    }
+    account.credentials_status = { has_api_key: true }
+    account.extra = {
+      upstream_provider: 'github_copilot',
+      openai_responses_mode: 'force_chat_completions'
+    }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+
+    const wrapper = mountModal(account)
+
+    expect(wrapper.get('[data-testid="coding-plan-provider"]').text()).toContain('GitHub Copilot')
+    expect(wrapper.get('[data-testid="coding-plan-models"]').text()).toContain('gpt-5.4')
+    expect(wrapper.get('[data-testid="coding-plan-models"]').text()).not.toContain('mai-code-1-flash')
+    expect(wrapper.find('[data-testid="model-whitelist-value"]').exists()).toBe(false)
+    expect(wrapper.find('input[readonly]').exists()).toBe(false)
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    const payload = updateAccountMock.mock.calls[0]?.[1]
+    expect(payload.extra).toMatchObject({
+      upstream_provider: 'github_copilot',
+      openai_responses_mode: 'force_chat_completions'
+    })
+    expect(payload.credentials).not.toHaveProperty('api_key')
+    expect(payload.credentials).not.toHaveProperty('base_url')
+    expect(payload.credentials.openai_capabilities).toEqual(['chat_completions'])
+    expect(payload.credentials.model_mapping).toEqual({ 'gpt-5.4': 'gpt-5.4' })
+  })
 })

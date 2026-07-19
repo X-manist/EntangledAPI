@@ -46,6 +46,9 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 	if account == nil {
 		return errors.New("account is nil")
 	}
+	if account.IsCodingPlanProvider() {
+		return errors.New("responses websocket is not supported by coding plan providers")
+	}
 	if strings.TrimSpace(token) == "" {
 		return errors.New("token is empty")
 	}

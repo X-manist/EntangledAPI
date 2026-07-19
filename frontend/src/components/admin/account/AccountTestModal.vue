@@ -55,7 +55,7 @@
         />
       </div>
 
-      <div v-if="isOpenAIAccount" class="space-y-1.5">
+      <div v-if="isOpenAIAccount" class="space-y-1.5" data-testid="openai-test-mode">
         <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
           {{ t('admin.accounts.openai.testMode') }}
         </label>
@@ -253,6 +253,7 @@ import { buildApiUrl } from '@/api/client'
 import { ADMIN_UI_REQUEST_HEADER } from '@/api/adminUIRequest'
 import { adminAPI } from '@/api/admin'
 import type { Account, ClaudeModel } from '@/types'
+import { getCodingPlanProviderPreset } from '@/utils/codingPlanProviders'
 
 const { t } = useI18n()
 const { copyToClipboard } = useClipboard()
@@ -289,7 +290,14 @@ let abortController: AbortController | null = null
 const generatedImages = ref<PreviewImage[]>([])
 const previewImageUrl = ref('')
 const testMode = ref<'default' | 'compact'>('default')
-const isOpenAIAccount = computed(() => props.account?.platform === 'openai')
+const codingPlanProvider = computed(() => {
+  const rawProvider = props.account?.extra?.upstream_provider ?? props.account?.credentials?.upstream_provider
+  return getCodingPlanProviderPreset(rawProvider)?.id || null
+})
+const isCodingPlanAccount = computed(() => Boolean(codingPlanProvider.value))
+const isOpenAIAccount = computed(
+  () => props.account?.platform === 'openai' && !isCodingPlanAccount.value
+)
 const openAITestModeOptions = computed(() => [
   { value: 'default', label: t('admin.accounts.openai.testModeDefault') },
   { value: 'compact', label: t('admin.accounts.openai.testModeCompact') }
@@ -305,7 +313,7 @@ const supportsGeminiImageTest = computed(() => {
 const supportsOpenAIImageTest = computed(() => {
   const modelID = selectedModelId.value.toLowerCase()
   if (!modelID.startsWith('gpt-image-')) return false
-  return props.account?.platform === 'openai'
+  return isOpenAIAccount.value
 })
 
 const supportsImageTest = computed(() => supportsGeminiImageTest.value || supportsOpenAIImageTest.value)
@@ -356,6 +364,12 @@ const loadAvailableModels = async () => {
     if (availableModels.value.length > 0) {
       if (props.account.platform === 'gemini') {
         selectedModelId.value = availableModels.value[0].id
+      } else if (codingPlanProvider.value === 'kimi_coding_plan') {
+        // kimi-for-coding is available to every Kimi Code membership tier;
+        // k3 and HighSpeed can require a higher subscription.
+        selectedModelId.value = availableModels.value.find(
+          (model) => model.id === 'kimi-for-coding'
+        )?.id || availableModels.value[0].id
       } else {
         // Try to select Sonnet as default, otherwise use first model
         const sonnetModel = availableModels.value.find((m) => m.id.includes('sonnet'))

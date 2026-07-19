@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -228,6 +229,9 @@ func (s *OpenAIGatewayService) FetchCodexModelsManifest(ctx context.Context, acc
 	if err != nil {
 		return nil, infraerrors.Newf(http.StatusInternalServerError, "OPENAI_CODEX_MODELS_CREDENTIALS_FAILED", "resolve credential account: %v", err)
 	}
+	if credAccount.IsCodingPlanProvider() {
+		return buildCodingPlanCodexModelsManifest(credAccount, ifNoneMatch)
+	}
 
 	clientVersion = strings.TrimSpace(clientVersion)
 	if clientVersion == "" {
@@ -306,6 +310,48 @@ func (s *OpenAIGatewayService) FetchCodexModelsManifest(ctx context.Context, acc
 		return s.fetchCachedAPIKeyCodexModelsManifest(ctx, request, ifNoneMatch)
 	}
 	return s.fetchCodexModelsManifestUpstream(ctx, request, ifNoneMatch)
+}
+
+func buildCodingPlanCodexModelsManifest(account *Account, ifNoneMatch string) (*CodexModelsManifest, error) {
+	if account == nil || !account.IsCodingPlanProvider() {
+		return nil, infraerrors.New(http.StatusInternalServerError, "OPENAI_CODEX_MODELS_ACCOUNT_REQUIRED", "coding plan account is required")
+	}
+
+	modelSet := make(map[string]struct{})
+	for alias, upstream := range account.GetModelMapping() {
+		if alias = strings.TrimSpace(alias); alias != "" && !strings.Contains(alias, "*") {
+			modelSet[alias] = struct{}{}
+		}
+		if upstream = strings.TrimSpace(upstream); upstream != "" && !strings.Contains(upstream, "*") {
+			modelSet[upstream] = struct{}{}
+		}
+	}
+	models := make([]string, 0, len(modelSet))
+	for model := range modelSet {
+		models = append(models, model)
+	}
+	sort.Strings(models)
+
+	type manifestModel struct {
+		Slug        string `json:"slug"`
+		DisplayName string `json:"display_name"`
+	}
+	payload := struct {
+		Models []manifestModel `json:"models"`
+	}{Models: make([]manifestModel, 0, len(models))}
+	for _, model := range models {
+		payload.Models = append(payload.Models, manifestModel{Slug: model, DisplayName: model})
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, infraerrors.Newf(http.StatusInternalServerError, "OPENAI_CODEX_MODELS_REQUEST_FAILED", "marshal coding plan models manifest: %v", err)
+	}
+	digest := sha256.Sum256(body)
+	etag := fmt.Sprintf(`"%x"`, digest[:])
+	if codexModelsManifestETagMatches(ifNoneMatch, etag) {
+		return &CodexModelsManifest{ETag: etag, NotModified: true}, nil
+	}
+	return &CodexModelsManifest{Body: body, ETag: etag}, nil
 }
 
 func (s *OpenAIGatewayService) fetchCachedAPIKeyCodexModelsManifest(ctx context.Context, request codexModelsManifestRequest, ifNoneMatch string) (*CodexModelsManifest, error) {

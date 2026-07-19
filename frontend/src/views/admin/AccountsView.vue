@@ -236,6 +236,7 @@
                 <PlatformTypeBadge :platform="row.platform" :type="row.type"
                   :plan-type="row.credentials?.plan_type || row.parent_plan_type"
                   :privacy-mode="row.extra?.privacy_mode || row.parent_privacy_mode"
+                  :upstream-provider="row.extra?.upstream_provider"
                   :subscription-expires-at="row.credentials?.subscription_expires_at || row.parent_subscription_expires_at" />
                 <span
                   v-if="getAntigravityTierLabel(row)"

@@ -57,6 +57,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { AccountPlatform, AccountType } from '@/types'
+import { getCodingPlanProviderPreset } from '@/utils/codingPlanProviders'
 import PlatformIcon from './PlatformIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
 
@@ -68,11 +69,14 @@ interface Props {
   planType?: string
   privacyMode?: string
   subscriptionExpiresAt?: string
+  upstreamProvider?: string
 }
 
 const props = defineProps<Props>()
+const codingPlanPreset = computed(() => getCodingPlanProviderPreset(props.upstreamProvider))
 
 const platformLabel = computed(() => {
+  if (codingPlanPreset.value) return codingPlanPreset.value.label
   if (props.platform === 'anthropic') return 'Anthropic'
   if (props.platform === 'openai') return 'OpenAI'
   if (props.platform === 'antigravity') return 'Antigravity'

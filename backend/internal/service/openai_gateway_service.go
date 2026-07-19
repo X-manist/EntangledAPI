@@ -23,6 +23,7 @@ import (
 	"github.com/cespare/xxhash/v2"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
+	"golang.org/x/sync/singleflight"
 )
 
 const (
@@ -407,6 +408,9 @@ type OpenAIGatewayService struct {
 	codexModelsManifestCache            codexModelsManifestCache
 	openaiCompatSessionResponses        sync.Map
 	openaiCompatAnthropicDigestSessions sync.Map
+	githubCopilotTokenSF                singleflight.Group
+	githubCopilotRefreshSeq             atomic.Uint64
+	githubCopilotSessions               sync.Map
 }
 
 // NewOpenAIGatewayService creates a new OpenAIGatewayService
@@ -1117,6 +1121,13 @@ func (s *OpenAIGatewayService) GetAccessToken(ctx context.Context, account *Acco
 		}
 		return accessToken, "oauth", nil
 	case AccountTypeAPIKey:
+		if account.IsGitHubCopilot() {
+			session, err := s.ensureGitHubCopilotSession(ctx, account)
+			if err != nil {
+				return "", "", err
+			}
+			return session.token, "copilot", nil
+		}
 		if account.Platform == PlatformGrok {
 			apiKey := strings.TrimSpace(account.GetCredential("api_key"))
 			if apiKey == "" {

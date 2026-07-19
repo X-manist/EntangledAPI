@@ -500,6 +500,34 @@ export default {
       apiKeyRequired: 'API Key *',
       apiKeyPlaceholder: 'sk-ant-api03-...',
       apiKeyHint: '您的 Claude Console API Key',
+      codingPlans: {
+        title: 'Coding Plan',
+        strictModels: '预置模型',
+        strictModelsHint: '实际可用范围以该账号的套餐、组织策略和上游授权为准。',
+        providers: {
+          glm_coding_plan: {
+            credential: 'GLM Coding Plan 密钥',
+            credentialRequired: 'GLM Coding Plan 密钥 *',
+            placeholder: '输入 GLM Coding Plan 密钥',
+            credentialHint: 'GLM Coding Plan 订阅提供的 API Key。',
+            baseUrlHint: '此账号固定使用 GLM Coding Plan 官方端点。'
+          },
+          kimi_coding_plan: {
+            credential: 'Kimi Coding Plan 密钥',
+            credentialRequired: 'Kimi Coding Plan 密钥 *',
+            placeholder: '输入 Kimi Coding Plan 密钥',
+            credentialHint: 'Kimi Coding Plan 订阅提供的 API Key。',
+            baseUrlHint: '此账号固定使用 Kimi Coding Plan 官方端点。'
+          },
+          github_copilot: {
+            credential: 'GitHub Token',
+            credentialRequired: 'GitHub Token *',
+            placeholder: 'ghu_... 或 github_pat_...',
+            credentialHint: '推荐使用 fine-grained PAT，并为目标账号授予 Copilot Requests 权限。',
+            baseUrlHint: ''
+          }
+        }
+      },
       // OpenAI specific hints
       openai: {
         baseUrlHint: '留空使用官方 OpenAI API',

@@ -19,6 +19,9 @@ func (s *OpenAIGatewayService) buildOpenAIResponsesWSURL(account *Account) (stri
 	if account == nil {
 		return "", errors.New("account is nil")
 	}
+	if account.IsCodingPlanProvider() {
+		return "", errors.New("responses websocket is not supported by coding plan providers")
+	}
 	var targetURL string
 	switch account.Type {
 	case AccountTypeOAuth:

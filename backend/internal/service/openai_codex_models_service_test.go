@@ -947,3 +947,39 @@ func TestFetchCodexModelsManifestAPIKeyRejectsOfficialOpenAIBaseURL(t *testing.T
 		})
 	}
 }
+
+func TestFetchCodexModelsManifestCodingPlanBuildsLocalManifest(t *testing.T) {
+	account := &Account{
+		ID:       902,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Extra:    map[string]any{UpstreamProviderExtraKey: UpstreamProviderKimiCodingPlan},
+		Credentials: map[string]any{
+			"api_key": "kimi-secret-must-not-be-forwarded",
+			"model_mapping": map[string]any{
+				"kimi-for-coding": "kimi-for-coding",
+				"friendly-kimi":   "kimi-for-coding",
+			},
+		},
+	}
+	service := &OpenAIGatewayService{}
+
+	manifest, err := service.FetchCodexModelsManifest(context.Background(), account, "0.144.0", "")
+	if err != nil {
+		t.Fatalf("FetchCodexModelsManifest returned error: %v", err)
+	}
+	if manifest.ETag == "" {
+		t.Fatal("expected a deterministic ETag")
+	}
+	if got, want := string(manifest.Body), `{"models":[{"slug":"friendly-kimi","display_name":"friendly-kimi"},{"slug":"kimi-for-coding","display_name":"kimi-for-coding"}]}`; got != want {
+		t.Fatalf("manifest body: got %s, want %s", got, want)
+	}
+
+	notModified, err := service.FetchCodexModelsManifest(context.Background(), account, "0.144.0", manifest.ETag)
+	if err != nil {
+		t.Fatalf("FetchCodexModelsManifest with ETag returned error: %v", err)
+	}
+	if !notModified.NotModified || len(notModified.Body) != 0 {
+		t.Fatalf("expected not-modified manifest, got %+v", notModified)
+	}
+}

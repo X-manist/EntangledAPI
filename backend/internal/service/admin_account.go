@@ -127,6 +127,10 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	if err != nil {
 		return nil, err
 	}
+	input.Credentials, accountExtra, err = normalizeCodingPlanAccount(input.Platform, input.Type, input.Credentials, accountExtra)
+	if err != nil {
+		return nil, err
+	}
 
 	// 绑定分组
 	groupIDs := input.GroupIDs
@@ -248,6 +252,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		if err != nil {
 			return nil, err
 		}
+		if err := preserveCodingPlanProviderOnUpdate(account, normalizedExtra); err != nil {
+			return nil, err
+		}
 	}
 	// 安全/身份不变量(影子账号):通用更新路径被 edit/re-auth/refresh/batch 共用,
 	// 必须在此守住,否则仅在创建时的保证可被这些路径绕过。
@@ -325,6 +332,10 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		}
 		ComputeQuotaResetAt(account.Extra)
 		NormalizeFixedQuotaWindows(account.Extra)
+	}
+	account.Credentials, account.Extra, err = normalizeCodingPlanAccount(account.Platform, account.Type, account.Credentials, account.Extra)
+	if err != nil {
+		return nil, err
 	}
 	// 影子代理恒继承母账号(由 propagateProxyToShadows 同步),不接受独立编辑——外审 B/P1;
 	// 否则要等母账号下次改 proxy 才被覆盖,期间影子会出现"有时继承、有时独立"的漂移。
@@ -419,6 +430,15 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 // UpdateAccountExtra 仅对 Extra JSONB 做 key 级合并，避免覆盖其它运行态键
 // （如 model_rate_limits / passive_usage_* 等）。
 func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, updates map[string]any) error {
+	if codingPlanExtraPatchRequiresValidation(updates) {
+		account, err := s.accountRepo.GetByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		if err := validateCodingPlanExtraPatch(account, updates); err != nil {
+			return err
+		}
+	}
 	if _, exists := updates[openAILongContextBillingEnabledKey]; exists {
 		account, err := s.accountRepo.GetByID(ctx, id)
 		if err != nil {
@@ -462,10 +482,18 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 
 	needMixedChannelCheck := input.GroupIDs != nil && !input.SkipMixedChannelCheck
 	_, hasLongContextBillingUpdate := input.Extra[openAILongContextBillingEnabledKey]
+	_, hasUpstreamProviderUpdate := input.Extra[UpstreamProviderExtraKey]
+	hasCodingPlanProtocolUpdate := codingPlanExtraPatchRequiresValidation(input.Extra)
+	if hasUpstreamProviderUpdate {
+		return nil, infraerrors.BadRequest(
+			"CODING_PLAN_PROVIDER_BULK_UPDATE_UNSUPPORTED",
+			"upstream_provider cannot be changed through bulk update",
+		)
+	}
 
 	// 预取所有目标账号，供凭据守卫/代理守卫/混合渠道检查共用，避免多次 DB 查询。
 	var cachedTargets []*Account
-	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || hasLongContextBillingUpdate {
+	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || hasLongContextBillingUpdate || hasCodingPlanProtocolUpdate {
 		loaded, err := s.accountRepo.GetByIDs(ctx, input.AccountIDs)
 		if err != nil {
 			return nil, err
@@ -481,6 +509,16 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 				return nil, err
 			}
 			break
+		}
+	}
+	if len(input.Credentials) > 0 || hasCodingPlanProtocolUpdate {
+		for _, account := range cachedTargets {
+			if account != nil && account.IsCodingPlanProvider() {
+				return nil, infraerrors.BadRequest(
+					"CODING_PLAN_BULK_UPDATE_UNSUPPORTED",
+					"coding plan credentials and protocol settings must be edited on a single account",
+				)
+			}
 		}
 	}
 

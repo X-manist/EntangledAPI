@@ -28,12 +28,22 @@
 
       <!-- API Key fields (only for apikey type) -->
       <div v-if="account.type === 'apikey'" class="space-y-4">
-        <div>
+        <div
+          v-if="codingPlanPreset"
+          class="rounded-lg border border-primary-200 bg-primary-50 px-3 py-2 dark:border-primary-800/50 dark:bg-primary-900/20"
+          data-testid="coding-plan-provider"
+        >
+          <span class="text-sm font-medium text-primary-800 dark:text-primary-200">
+            {{ codingPlanPreset.label }}
+          </span>
+        </div>
+        <div v-if="!isGitHubCopilot">
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
             v-model="editBaseUrl"
             type="text"
             class="input"
+            :readonly="Boolean(codingPlanPreset)"
             :placeholder="
               account.platform === 'openai'
                 ? 'https://api.openai.com'
@@ -49,7 +59,7 @@
           <p v-if="baseUrlHint" class="input-hint">{{ baseUrlHint }}</p>
         </div>
         <div>
-          <label class="input-label">{{ t('admin.accounts.apiKey') }}</label>
+          <label class="input-label">{{ codingPlanCredentialLabel }}</label>
           <input
             v-model="editApiKey"
             type="password"
@@ -59,7 +69,7 @@
             data-lpignore="true"
             data-bwignore="true"
             :placeholder="
-              account.platform === 'openai'
+              codingPlanCredentialPlaceholder || (account.platform === 'openai'
                 ? 'sk-proj-...'
                 : account.platform === 'gemini'
                   ? 'AIza...'
@@ -67,14 +77,35 @@
                     ? 'sk-...'
                     : account.platform === 'grok'
                       ? 'xai-...'
-                      : 'sk-ant-...'
+                      : 'sk-ant-...')
             "
           />
           <p class="input-hint">{{ t('admin.accounts.leaveEmptyToKeep') }}</p>
+          <p v-if="codingPlanCredentialHint" class="input-hint">
+            {{ codingPlanCredentialHint }}
+          </p>
+        </div>
+
+        <div
+          v-if="codingPlanPreset"
+          class="border-t border-gray-200 pt-4 dark:border-dark-600"
+          data-testid="coding-plan-models"
+        >
+          <label class="input-label">{{ t('admin.accounts.codingPlans.strictModels') }}</label>
+          <div class="mt-2 flex flex-wrap gap-2">
+            <span
+              v-for="model in codingPlanDisplayModels"
+              :key="model"
+              class="rounded bg-gray-100 px-2 py-1 font-mono text-xs text-gray-700 dark:bg-dark-600 dark:text-gray-300"
+            >
+              {{ model }}
+            </span>
+          </div>
+          <p class="input-hint">{{ t('admin.accounts.codingPlans.strictModelsHint') }}</p>
         </div>
 
         <!-- Model Restriction Section (不适用于 Antigravity) -->
-        <div v-if="account.platform !== 'antigravity'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div v-else-if="account.platform !== 'antigravity'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
           <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
 
           <div
@@ -1450,7 +1481,7 @@
 
       <!-- OpenAI 自动透传开关（OAuth/API Key） -->
       <div
-        v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
+        v-if="account?.platform === 'openai' && !codingPlanPreset && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -1480,7 +1511,7 @@
 
       <!-- OpenAI Codex 图片工具统一策略（自动注入 + 客户端显式携带） -->
       <div
-        v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
+        v-if="account?.platform === 'openai' && !codingPlanPreset && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="overflow-hidden rounded-lg border border-sky-100 bg-sky-50/60 shadow-sm dark:border-sky-900/50 dark:bg-sky-950/20">
@@ -1540,7 +1571,7 @@
 
       <!-- OpenAI WS Mode 三态（off/ctx_pool/passthrough） -->
       <div
-        v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
+        v-if="account?.platform === 'openai' && !codingPlanPreset && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -1561,7 +1592,7 @@
 
       <!-- OpenAI APIKey Responses API support mode -->
       <div
-        v-if="account?.platform === 'openai' && account?.type === 'apikey'"
+        v-if="account?.platform === 'openai' && !codingPlanPreset && account?.type === 'apikey'"
         class="space-y-4 border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between gap-4">
@@ -1788,7 +1819,7 @@
 
       <!-- OpenAI API 长上下文计费开关 -->
       <div
-        v-if="account?.platform === 'openai' && !isSparkShadow && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
+        v-if="account?.platform === 'openai' && !codingPlanPreset && !isSparkShadow && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between gap-4">
@@ -1893,7 +1924,7 @@
       </div>
 
       <div
-        v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
+        v-if="account?.platform === 'openai' && !codingPlanPreset && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
       >
         <div class="flex items-center justify-between">
@@ -2576,6 +2607,7 @@ import type {
   Proxy,
   AdminGroup,
   CheckMixedChannelResponse,
+  CodingPlanUpstreamProvider,
   OpenAICompactMode,
   OpenAIResponsesMode,
   OpenAIEndpointCapability
@@ -2606,6 +2638,12 @@ import {
 } from '@/components/account/credentialsBuilder'
 import { formatDateTime, formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
+import {
+  buildCodingPlanCredentials,
+  getCodingPlanDisplayModels,
+  getCodingPlanProviderPreset,
+  resolveCodingPlanModelMapping
+} from '@/utils/codingPlanProviders'
 import { VERTEX_LOCATION_OPTIONS } from '@/constants/account'
 import {
   OPENAI_WS_MODE_CTX_POOL,
@@ -2641,6 +2679,31 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const appStore = useAppStore()
 const authStore = useAuthStore()
+const codingPlanProvider = computed<CodingPlanUpstreamProvider | null>(() => {
+  const extra = props.account?.extra as Record<string, unknown> | undefined
+  const credentials = props.account?.credentials as Record<string, unknown> | undefined
+  const rawProvider = extra?.upstream_provider ?? credentials?.upstream_provider
+  return getCodingPlanProviderPreset(rawProvider)?.id || null
+})
+const codingPlanPreset = computed(() => getCodingPlanProviderPreset(codingPlanProvider.value))
+const isGitHubCopilot = computed(() => codingPlanProvider.value === 'github_copilot')
+const codingPlanDisplayModels = computed(() => {
+  if (!codingPlanPreset.value) return []
+  const credentials = props.account?.credentials as Record<string, unknown> | undefined
+  return getCodingPlanDisplayModels(codingPlanPreset.value, credentials?.model_mapping)
+})
+const codingPlanCredentialLabel = computed(() => {
+  if (!codingPlanProvider.value) return t('admin.accounts.apiKey')
+  return t(`admin.accounts.codingPlans.providers.${codingPlanProvider.value}.credential`)
+})
+const codingPlanCredentialPlaceholder = computed(() => {
+  if (!codingPlanProvider.value) return ''
+  return t(`admin.accounts.codingPlans.providers.${codingPlanProvider.value}.placeholder`)
+})
+const codingPlanCredentialHint = computed(() => {
+  if (!codingPlanProvider.value) return ''
+  return t(`admin.accounts.codingPlans.providers.${codingPlanProvider.value}.credentialHint`)
+})
 
 // Spark 影子账号(parent_account_id 非空):代理恒继承母账号,不可独立编辑(外审 B/P1),
 // 故隐藏代理选择器。
@@ -2649,6 +2712,9 @@ const isSparkShadow = computed(() => props.account?.parent_account_id != null)
 // Platform-specific hint for Base URL
 const baseUrlHint = computed(() => {
   if (!props.account) return t('admin.accounts.baseUrlHint')
+  if (codingPlanProvider.value) {
+    return t(`admin.accounts.codingPlans.providers.${codingPlanProvider.value}.baseUrlHint`)
+  }
   if (props.account.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (props.account.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
   if (props.account.platform === 'grok') return ''
@@ -3106,6 +3172,7 @@ const tempUnschedPresets = computed(() => [
 
 // Computed: default base URL based on platform
 const defaultBaseUrl = computed(() => {
+  if (codingPlanPreset.value) return codingPlanPreset.value.baseUrl || ''
   if (props.account?.platform === 'openai') return 'https://api.openai.com'
   if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
   if (props.account?.platform === 'grok') return 'https://api.x.ai/v1'
@@ -3240,6 +3307,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   mixedScheduling.value = false
   allowOverages.value = false
 	const extra = newAccount.extra as Record<string, unknown> | undefined
+	const selectedCodingPlanPreset = getCodingPlanProviderPreset(
+		extra?.upstream_provider ?? credentials?.upstream_provider
+	)
 	mixedScheduling.value = extra?.mixed_scheduling === true
 	allowOverages.value = extra?.allow_overages === true
 	autoPause5hThreshold.value = typeof extra?.auto_pause_5h_threshold === 'number' ? extra.auto_pause_5h_threshold * 100 : null
@@ -3279,6 +3349,11 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       )
       if (!openAITextGenerationCapabilityEnabled.value) {
         openAIResponsesMode.value = 'auto'
+      }
+      if (selectedCodingPlanPreset) {
+        openaiPassthroughEnabled.value = false
+        openAIResponsesMode.value = 'force_chat_completions'
+        openAIEndpointCapabilities.value = ['chat_completions']
       }
     }
     const codexImageGenerationBridgeValue = typeof extra?.codex_image_generation_bridge === 'boolean'
@@ -3412,7 +3487,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
           : newAccount.platform === 'grok'
             ? 'https://api.x.ai/v1'
             : 'https://api.anthropic.com'
-    editBaseUrl.value = (credentials.base_url as string) || platformDefaultUrl
+    editBaseUrl.value = selectedCodingPlanPreset
+      ? selectedCodingPlanPreset.baseUrl || ''
+      : (credentials.base_url as string) || platformDefaultUrl
 
     // Load model mappings and detect mode
     loadModelRestrictionFromMapping(credentials.model_mapping as Record<string, unknown> | undefined)
@@ -4008,13 +4085,20 @@ const handleSubmit = async () => {
     // For apikey type, handle credentials update
     if (props.account.type === 'apikey') {
       const currentCredentials = (props.account.credentials as Record<string, unknown>) || {}
+      const selectedCodingPlanPreset = codingPlanPreset.value
       const newBaseUrl = editBaseUrl.value.trim() || defaultBaseUrl.value
-      const shouldApplyModelMapping = !(props.account.platform === 'openai' && openaiPassthroughEnabled.value)
+      const shouldApplyModelMapping = !selectedCodingPlanPreset &&
+        !(props.account.platform === 'openai' && openaiPassthroughEnabled.value)
 
       // Always update credentials for apikey type to handle model mapping changes
       const newCredentials: Record<string, unknown> = {
         ...currentCredentials,
-        base_url: newBaseUrl
+        ...(selectedCodingPlanPreset
+          ? buildCodingPlanCredentials(selectedCodingPlanPreset, editApiKey.value.trim())
+          : { base_url: newBaseUrl })
+      }
+      if (selectedCodingPlanPreset?.id === 'github_copilot') {
+        delete newCredentials.base_url
       }
 
       // Handle API key
@@ -4029,10 +4113,17 @@ const handleSubmit = async () => {
       } else if (!hasExistingApiKey) {
         appStore.showError(t('admin.accounts.apiKeyIsRequired'))
         return
+      } else if (selectedCodingPlanPreset) {
+        delete newCredentials.api_key
       }
 
       // Add model mapping if configured（OpenAI 开启自动透传时保留现有映射，不再编辑）
-      if (shouldApplyModelMapping) {
+      if (selectedCodingPlanPreset) {
+        newCredentials.model_mapping = resolveCodingPlanModelMapping(
+          selectedCodingPlanPreset,
+          currentCredentials.model_mapping
+        )
+      } else if (shouldApplyModelMapping) {
         const modelMapping = buildModelRestrictionMapping()
         if (modelMapping) {
           newCredentials.model_mapping = modelMapping
@@ -4042,7 +4133,7 @@ const handleSubmit = async () => {
       } else if (currentCredentials.model_mapping) {
         newCredentials.model_mapping = currentCredentials.model_mapping
       }
-      if (props.account.platform === 'openai') {
+      if (props.account.platform === 'openai' && !selectedCodingPlanPreset) {
         applyOpenAIEndpointCapabilities(newCredentials)
         const compactModelMapping = buildModelMappingObject('mapping', [], openAICompactModelMappings.value)
         if (compactModelMapping) {
@@ -4453,6 +4544,11 @@ const handleSubmit = async () => {
         } else {
           newExtra.openai_responses_mode = openAIResponsesMode.value
         }
+		}
+		if (codingPlanProvider.value) {
+			newExtra.upstream_provider = codingPlanProvider.value
+			newExtra.openai_responses_mode = 'force_chat_completions'
+			delete newExtra.openai_responses_supported
 		}
 		if (autoPause5hThreshold.value != null && autoPause5hThreshold.value > 0) {
 			newExtra.auto_pause_5h_threshold = autoPause5hThreshold.value / 100

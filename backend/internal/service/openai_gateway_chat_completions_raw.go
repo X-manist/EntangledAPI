@@ -109,9 +109,23 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 
 	// Grok Composer does not accept image_url parts directly, but Grok Build
 	// can describe the images first. Bridge only this exact failure mode.
-	token, tokenKind, err := s.GetAccessToken(ctx, account)
-	if err != nil {
-		return nil, err
+	var token string
+	var tokenKind string
+	var targetURL string
+	var err error
+	if account.IsGitHubCopilot() {
+		session, resolvedTargetURL, resolveErr := s.resolveGitHubCopilotChatSession(ctx, account)
+		if resolveErr != nil {
+			return nil, s.githubCopilotFailoverError(ctx, account, resolveErr)
+		}
+		token = session.token
+		tokenKind = "GitHub Copilot session token"
+		targetURL = resolvedTargetURL
+	} else {
+		token, tokenKind, err = s.GetAccessToken(ctx, account)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if strings.TrimSpace(token) == "" {
 		return nil, fmt.Errorf("account %d missing %s credential", account.ID, tokenKind)
@@ -156,9 +170,11 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	)
 
 	// 5. Build and send upstream request via the shared CC pipeline
-	targetURL, err := s.rawChatCompletionsURL(account)
-	if err != nil {
-		return nil, err
+	if targetURL == "" {
+		targetURL, err = s.rawChatCompletionsURL(account)
+		if err != nil {
+			return nil, err
+		}
 	}
 	SetActualOpenAIUpstreamEndpoint(c, grokChatRawEndpoint)
 	customUA := account.GetOpenAIUserAgent()

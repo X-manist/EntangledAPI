@@ -211,3 +211,108 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(createOpenAICodexPATMock.mock.calls[0]?.[0]?.extra?.openai_long_context_billing_enabled).toBe(false)
   })
 })
+
+describe('CreateAccountModal Coding Plans', () => {
+  beforeEach(() => {
+    createAccountMock.mockReset().mockResolvedValue({})
+  })
+
+  it.each([
+    ['glm_coding_plan', 'https://open.bigmodel.cn/api/coding/paas/v4'],
+    ['kimi_coding_plan', 'https://api.kimi.com/coding/v1'],
+    ['github_copilot', undefined]
+  ] as const)('creates %s as a strict OpenAI-compatible API key account', async (provider, baseUrl) => {
+    const wrapper = mountModal()
+    await wrapper.get(`[data-testid="coding-plan-${provider}"]`).trigger('click')
+    await wrapper.get('[data-tour="account-form-name"]').setValue(`${provider} account`)
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('coding-token')
+
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    const payload = createAccountMock.mock.calls[0]?.[0]
+    expect(payload).toMatchObject({
+      platform: 'openai',
+      type: 'apikey',
+      extra: {
+        upstream_provider: provider,
+        openai_responses_mode: 'force_chat_completions'
+      },
+      credentials: {
+        api_key: 'coding-token',
+        openai_capabilities: ['chat_completions']
+      }
+    })
+    expect(Object.keys(payload.credentials.model_mapping).length).toBeGreaterThan(0)
+    if (baseUrl) {
+      expect(payload.credentials.base_url).toBe(baseUrl)
+    } else {
+      expect(payload.credentials).not.toHaveProperty('base_url')
+      expect(wrapper.find('input[readonly]').exists()).toBe(false)
+    }
+  })
+
+  it('clears the subtype when switching back to a normal OpenAI account', async () => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="coding-plan-glm_coding_plan"]').trigger('click')
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    await wrapper.get('[data-tour="account-form-name"]').setValue('Normal OpenAI account')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('openai-key')
+
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    const payload = createAccountMock.mock.calls[0]?.[0]
+    expect(payload.extra).not.toHaveProperty('upstream_provider')
+    expect(payload.extra).not.toHaveProperty('openai_responses_mode')
+  })
+
+  it('clears the shared credential whenever the upstream identity actually changes', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+
+    const credentialInput = wrapper.get('[data-testid="api-key-value"]')
+    await credentialInput.setValue('openai-secret')
+
+    // Re-selecting the same regular provider is not an identity change.
+    await selectButtonByText(wrapper, 'OpenAI')
+    expect((credentialInput.element as HTMLInputElement).value).toBe('openai-secret')
+
+    await wrapper.get('[data-testid="coding-plan-glm_coding_plan"]').trigger('click')
+    expect((wrapper.get('[data-testid="api-key-value"]').element as HTMLInputElement).value).toBe('')
+
+    await wrapper.get('[data-testid="api-key-value"]').setValue('glm-secret')
+    // Re-selecting the same Coding Plan is also a no-op.
+    await wrapper.get('[data-testid="coding-plan-glm_coding_plan"]').trigger('click')
+    expect((wrapper.get('[data-testid="api-key-value"]').element as HTMLInputElement).value).toBe('glm-secret')
+
+    await wrapper.get('[data-testid="coding-plan-kimi_coding_plan"]').trigger('click')
+    expect((wrapper.get('[data-testid="api-key-value"]').element as HTMLInputElement).value).toBe('')
+
+    await wrapper.get('[data-testid="api-key-value"]').setValue('kimi-secret')
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    expect((wrapper.get('[data-testid="api-key-value"]').element as HTMLInputElement).value).toBe('')
+
+    await wrapper.get('[data-testid="api-key-value"]').setValue('next-openai-secret')
+    await selectButtonByText(wrapper, 'Anthropic')
+    expect((wrapper.get('[data-testid="api-key-value"]').element as HTMLInputElement).value).toBe('')
+  })
+
+  it('does not reset a custom Base URL when normal OpenAI is selected again', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+
+    const baseUrlInput = wrapper.get('[data-testid="api-key-base-url"]')
+    await baseUrlInput.setValue('https://openai-compatible.example/v1')
+    await selectButtonByText(wrapper, 'OpenAI')
+
+    expect((baseUrlInput.element as HTMLInputElement).value).toBe(
+      'https://openai-compatible.example/v1'
+    )
+  })
+})
