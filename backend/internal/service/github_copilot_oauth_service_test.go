@@ -113,10 +113,7 @@ func githubCopilotDeviceStartJSON() string {
 }
 
 func githubCopilotEntitlementJSON() string {
-	return fmt.Sprintf(
-		`{"token":"short-lived-copilot-token","expires_at":%d,"endpoints":{"api":"https://api.githubcopilot.com"}}`,
-		time.Now().Add(10*time.Minute).Unix(),
-	)
+	return `{"login":"octocat","access_type_sku":"copilot_for_individual_user","chat_enabled":true,"copilot_plan":"individual","endpoints":{"api":"https://api.githubcopilot.com"}}`
 }
 
 func newGitHubCopilotOAuthTestService(
@@ -205,7 +202,7 @@ func TestGitHubCopilotOAuthAuthorizeCheckoutReleaseFinalize(t *testing.T) {
 			return githubCopilotOAuthJSONResponse(http.StatusOK, `{"access_token":"gho-source-token","token_type":"bearer"}`), nil
 		case githubCopilotUserURL:
 			return githubCopilotOAuthJSONResponse(http.StatusOK, `{"login":"octocat","id":583231}`), nil
-		case githubCopilotTokenExchangeURL:
+		case githubCopilotUserDiscoveryURL:
 			return githubCopilotOAuthJSONResponse(http.StatusOK, githubCopilotEntitlementJSON()), nil
 		default:
 			return nil, fmt.Errorf("unexpected URL")
@@ -227,7 +224,6 @@ func TestGitHubCopilotOAuthAuthorizeCheckoutReleaseFinalize(t *testing.T) {
 	encoded, err := json.Marshal(poll)
 	require.NoError(t, err)
 	require.NotContains(t, string(encoded), "gho-source-token")
-	require.NotContains(t, string(encoded), "short-lived-copilot-token")
 
 	calls := upstream.captured()
 	require.Len(t, calls, 4)
@@ -235,7 +231,7 @@ func TestGitHubCopilotOAuthAuthorizeCheckoutReleaseFinalize(t *testing.T) {
 		require.Equal(t, "http://proxy.example:8080", call.ProxyURL)
 	}
 	require.Equal(t, "Bearer gho-source-token", calls[2].Authorization)
-	require.Equal(t, "token gho-source-token", calls[3].Authorization)
+	require.Equal(t, "Bearer gho-source-token", calls[3].Authorization)
 
 	type checkoutResult struct {
 		credential *GitHubCopilotOAuthCredential
@@ -326,7 +322,7 @@ func TestGitHubCopilotOAuthEntitlementFailureIsTerminalAndRedacted(t *testing.T)
 			return githubCopilotOAuthJSONResponse(http.StatusOK, `{"access_token":"gho-sensitive-source"}`), nil
 		case githubCopilotUserURL:
 			return githubCopilotOAuthJSONResponse(http.StatusOK, `{"login":"no-plan","id":99}`), nil
-		case githubCopilotTokenExchangeURL:
+		case githubCopilotUserDiscoveryURL:
 			return githubCopilotOAuthJSONResponse(http.StatusForbidden, `{"message":"gho-sensitive-source has no entitlement"}`), nil
 		default:
 			return nil, fmt.Errorf("unexpected URL")
@@ -365,7 +361,7 @@ func TestGitHubCopilotOAuthEntitlementRateLimitKeepsAuthorizedTokenForRetry(t *t
 			return githubCopilotOAuthJSONResponse(http.StatusOK, `{"access_token":"gho-sensitive-source"}`), nil
 		case githubCopilotUserURL:
 			return githubCopilotOAuthJSONResponse(http.StatusOK, `{"login":"paid-user","id":99}`), nil
-		case githubCopilotTokenExchangeURL:
+		case githubCopilotUserDiscoveryURL:
 			entitlementCalls++
 			if entitlementCalls == 1 {
 				return githubCopilotOAuthJSONResponse(

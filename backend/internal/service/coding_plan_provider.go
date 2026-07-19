@@ -133,7 +133,13 @@ func normalizeCodingPlanAccount(
 		}
 	case UpstreamProviderGitHubCopilot:
 		// The configured secret is a GitHub token, not an OpenAI API key. The
-		// runtime exchanges it and obtains the API endpoint from GitHub.
+		// runtime discovers the API endpoint and forwards the token to Copilot.
+		if strings.HasPrefix(strings.TrimSpace(apiKey), "ghp_") {
+			return nil, nil, infraerrors.BadRequest(
+				"GITHUB_COPILOT_CLASSIC_PAT_UNSUPPORTED",
+				"GitHub Copilot does not support classic personal access tokens; use GitHub authorization or a fine-grained token with Copilot Requests permission",
+			)
+		}
 		delete(normalizedCredentials, "base_url")
 	}
 

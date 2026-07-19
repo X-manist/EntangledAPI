@@ -669,7 +669,7 @@ func (s *AccountTestService) testGitHubCopilotAccountConnection(c *gin.Context, 
 		testModelID = githubCopilotDefaultModel
 	}
 	testModelID = account.GetMappedModel(testModelID)
-	session, err := exchangeGitHubCopilotTokenAt(ctx, s.httpUpstream, account, githubCopilotTokenExchangeURL)
+	session, err := discoverGitHubCopilotSessionAt(ctx, s.httpUpstream, account, githubCopilotUserDiscoveryURL)
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("GitHub Copilot authentication failed: %s", err.Error()))
 	}

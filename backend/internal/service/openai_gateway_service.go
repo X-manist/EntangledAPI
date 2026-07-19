@@ -408,7 +408,7 @@ type OpenAIGatewayService struct {
 	codexModelsManifestCache            codexModelsManifestCache
 	openaiCompatSessionResponses        sync.Map
 	openaiCompatAnthropicDigestSessions sync.Map
-	githubCopilotTokenSF                singleflight.Group
+	githubCopilotDiscoverySF            singleflight.Group
 	githubCopilotRefreshSeq             atomic.Uint64
 	githubCopilotSessions               sync.Map
 }

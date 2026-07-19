@@ -149,7 +149,7 @@ func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, acc
 }
 
 func (s *AccountTestService) buildGitHubCopilotUpstreamModelsRequest(ctx context.Context, account *Account) (*http.Request, error) {
-	session, err := exchangeGitHubCopilotTokenAt(ctx, s.httpUpstream, account, githubCopilotTokenExchangeURL)
+	session, err := discoverGitHubCopilotSessionAt(ctx, s.httpUpstream, account, githubCopilotUserDiscoveryURL)
 	if err != nil {
 		return nil, newUpstreamModelSyncUpstreamError("Failed to authenticate with GitHub Copilot", err)
 	}

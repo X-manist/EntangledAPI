@@ -75,6 +75,17 @@ func TestNormalizeCopilotAccountDoesNotExposeGitHubTokenAsOpenAIAPIKey(t *testin
 	require.Equal(t, "github-token", account.GetCredential("api_key"))
 }
 
+func TestNormalizeCopilotAccountRejectsClassicPAT(t *testing.T) {
+	_, _, err := normalizeCodingPlanAccount(
+		PlatformOpenAI,
+		AccountTypeAPIKey,
+		map[string]any{"api_key": "  ghp_classic-token  "},
+		map[string]any{UpstreamProviderExtraKey: UpstreamProviderGitHubCopilot},
+	)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "does not support classic personal access tokens")
+}
+
 func TestPreserveCodingPlanProviderOnUpdate(t *testing.T) {
 	account := &Account{
 		Platform: PlatformOpenAI,

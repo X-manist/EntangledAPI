@@ -81,7 +81,7 @@ var (
 	)
 	ErrGitHubCopilotOAuthEntitlementRequired = infraerrors.Forbidden(
 		"GITHUB_COPILOT_OAUTH_ENTITLEMENT_REQUIRED",
-		"the authorized GitHub account does not have an available Copilot entitlement",
+		"the authorized GitHub account cannot access Copilot; verify its plan, permissions, and organization policy",
 	)
 )
 
@@ -592,18 +592,18 @@ func (s *GitHubCopilotOAuthService) validateCopilotEntitlement(ctx context.Conte
 		},
 		Proxy: proxy,
 	}
-	if _, err := exchangeGitHubCopilotTokenWithSource(
+	if _, err := discoverGitHubCopilotSessionWithSource(
 		ctx,
 		s.httpUpstream,
 		account,
 		accessToken,
-		githubCopilotTokenExchangeURL,
+		githubCopilotUserDiscoveryURL,
 	); err != nil {
-		// The lower-level exchange error can contain an upstream response body.
+		// The lower-level discovery error can contain an upstream response body.
 		// Never wrap it because that body must not reach the browser or logs.
 		var sessionErr *githubCopilotSessionError
 		if errors.As(err, &sessionErr) {
-			if sessionErr.statusCode == http.StatusUnauthorized {
+			if sessionErr.statusCode == http.StatusUnauthorized || sessionErr.statusCode == http.StatusNotFound {
 				return ErrGitHubCopilotOAuthEntitlementRequired
 			}
 			if sessionErr.statusCode == http.StatusForbidden && !isGitHubRateLimitResponse(sessionErr.responseHeaders, sessionErr.responseBody) {
@@ -622,7 +622,7 @@ func isGitHubRateLimitResponse(headers http.Header, body []byte) bool {
 	}
 
 	// GitHub's secondary rate limit may return 403 without either header. The
-	// response is already size-bounded by the token exchange, and is inspected
+	// response is already size-bounded by access discovery, and is inspected
 	// only in memory so upstream details never reach the browser or logs.
 	message := strings.ToLower(string(body))
 	return strings.Contains(message, "rate limit") ||

@@ -26,7 +26,7 @@ Coding Plan 不实现完整 OpenAI 平台协议，因此不会被调度到独立
 |---|---|---|
 | GLM Coding Plan | `https://open.bigmodel.cn/api/coding/paas/v4` | `GLM-5.2`、`GLM-5-Turbo`、`GLM-4.7` |
 | Kimi Coding Plan | `https://api.kimi.com/coding/v1` | `k3`、`kimi-for-coding`、`kimi-for-coding-highspeed` |
-| GitHub Copilot | 由 GitHub 令牌交换响应下发；当前默认回退为 `https://api.githubcopilot.com` | `claude-sonnet-4.6`、`claude-haiku-4.5`、`gpt-5.4`、`gpt-5.3-codex`、`gemini-3.1-pro-preview`、`gemini-3.5-flash`、`mai-code-1-flash` |
+| GitHub Copilot | 由 GitHub Copilot 用户信息响应下发；当前默认回退为 `https://api.githubcopilot.com` | `claude-sonnet-4.6`、`claude-haiku-4.5`、`gpt-5.4`、`gpt-5.3-codex`、`gemini-3.1-pro-preview`、`gemini-3.5-flash`、`mai-code-1-flash` |
 
 GLM 同时接受表中的小写别名，例如 `glm-5.2`、`glm-5-turbo`、`glm-4.7`，转发时会映射到官方模型名。模型是否可用仍取决于账号套餐、组织策略和上游实时授权。
 
@@ -127,8 +127,8 @@ curl -sS "$SUB2API_BASE_URL/v1/messages" \
 
 ## 6. Copilot 协议与使用边界
 
-Copilot 账号中保存的是 GitHub Token。无论通过 Device Flow 授权还是手动填写，服务端都会在后端保存该 Token，并用它交换短期 Copilot Token；短期 Token 临近过期或遇到认证失效时会重新交换。浏览器不会收到 Device Flow 获得的 GitHub Token。
+Copilot 账号中保存的是 GitHub Token。无论通过 Device Flow 授权还是手动填写，服务端都会在后端保存该 Token，并使用 GitHub Copilot 用户信息接口验证访问权限、获取该账号对应的 API 地址。后续 Copilot API 请求直接使用原始 GitHub Token；浏览器不会收到 Device Flow 获得的 GitHub Token。
 
-Copilot Token 的交换方式、交换响应下发的 API 地址、相关请求头和模型列表可能随 GitHub 客户端协议变化，不应视为 GitHub 承诺长期稳定的公共接口。升级后应重新执行账号测试和三个下游验证。
+GitHub 官方 SDK 支持将 `gho_`、`ghu_` 或具有 Copilot Requests 权限的 `github_pat_` Token 直接作为 `gitHubToken` 使用。当前中转层为了保持 OpenAI/Claude 兼容接口，仍会使用 Copilot 客户端的底层用户信息、API 地址、请求头和模型列表；这些低层 HTTP 细节不应视为 GitHub 承诺长期稳定的公共接口。升级后应重新执行账号测试和三个下游验证。
 
 使用这些账号时必须遵守 GLM Coding Plan、Kimi Code 和 GitHub Copilot 的套餐条款、授权工具范围、额度、计费及组织策略。本项目不承诺套餐一定允许通过中转站使用，也不承诺或提供规避客户端身份、User-Agent、授权工具名单、额度或风控规则的能力。上游拒绝某种客户端身份或使用方式时，应停止调用并按供应商规则处理。

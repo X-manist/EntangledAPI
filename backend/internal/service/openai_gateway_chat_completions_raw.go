@@ -119,7 +119,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 			return nil, s.githubCopilotFailoverError(ctx, account, resolveErr)
 		}
 		token = session.token
-		tokenKind = "GitHub Copilot session token"
+		tokenKind = "GitHub token"
 		targetURL = resolvedTargetURL
 	} else {
 		token, tokenKind, err = s.GetAccessToken(ctx, account)

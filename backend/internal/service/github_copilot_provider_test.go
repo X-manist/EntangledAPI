@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
@@ -38,32 +40,107 @@ func (u *githubCopilotTestHTTPUpstream) DoWithTLS(
 	return u.Do(req, "", 0, 0)
 }
 
-func TestExchangeGitHubCopilotToken(t *testing.T) {
-	expiresAt := time.Now().Add(10 * time.Minute).Unix()
+func TestDiscoverGitHubCopilotSession(t *testing.T) {
+	startedAt := time.Now()
 	upstream := &githubCopilotTestHTTPUpstream{}
 	upstream.do = func(req *http.Request) (*http.Response, error) {
 		require.Equal(t, http.MethodGet, req.Method)
-		require.Equal(t, "token github-secret", req.Header.Get("Authorization"))
-		require.Equal(t, githubCopilotIntegrationID, req.Header.Get("Copilot-Integration-Id"))
-		require.NotEmpty(t, req.Header.Get("Editor-Version"))
-		body := fmt.Sprintf(`{"token":"short-lived","expires_at":%d,"endpoints":{"api":"https://api.individual.githubcopilot.com"}}`, expiresAt)
+		require.Equal(t, githubCopilotUserDiscoveryURL, req.URL.String())
+		require.Equal(t, "Bearer github_pat_source", req.Header.Get("Authorization"))
+		require.Empty(t, req.Header.Get("Copilot-Integration-Id"))
+		body := `{"chat_enabled":true,"endpoints":{"api":"https://api.individual.githubcopilot.com"}}`
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
 	}
-	account := newGitHubCopilotTestAccount("github-secret")
+	account := newGitHubCopilotTestAccount("github_pat_source")
 
-	session, err := exchangeGitHubCopilotTokenAt(context.Background(), upstream, account, githubCopilotTokenExchangeURL)
+	session, err := discoverGitHubCopilotSessionAt(context.Background(), upstream, account, githubCopilotUserDiscoveryURL)
 	require.NoError(t, err)
-	require.Equal(t, "short-lived", session.token)
+	require.Equal(t, "github_pat_source", session.token)
 	require.Equal(t, "https://api.individual.githubcopilot.com", session.apiBase)
-	require.Equal(t, expiresAt, session.expiresAt.Unix())
+	require.WithinDuration(t, startedAt.Add(githubCopilotDiscoveryTTL), session.expiresAt, time.Second)
+}
+
+func TestDiscoverGitHubCopilotSessionAccessMetadataAndTokenTypes(t *testing.T) {
+	t.Run("no access", func(t *testing.T) {
+		upstream := &githubCopilotTestHTTPUpstream{do: func(_ *http.Request) (*http.Response, error) {
+			body := `{"access_type_sku":"no_access","can_signup_for_limited":true,"chat_enabled":true,"endpoints":{"api":"https://api.githubcopilot.com"}}`
+			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
+		}}
+		_, err := discoverGitHubCopilotSessionAt(context.Background(), upstream, newGitHubCopilotTestAccount("github_pat_source"), githubCopilotUserDiscoveryURL)
+		require.Error(t, err)
+		var sessionErr *githubCopilotSessionError
+		require.ErrorAs(t, err, &sessionErr)
+		require.Equal(t, http.StatusForbidden, sessionErr.statusCode)
+		require.Contains(t, err.Error(), "must be enabled")
+	})
+
+	t.Run("chat disabled", func(t *testing.T) {
+		upstream := &githubCopilotTestHTTPUpstream{do: func(_ *http.Request) (*http.Response, error) {
+			body := `{"access_type_sku":"copilot_for_individual_user","chat_enabled":false,"endpoints":{"api":"https://api.githubcopilot.com"}}`
+			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
+		}}
+		session, err := discoverGitHubCopilotSessionAt(context.Background(), upstream, newGitHubCopilotTestAccount("gho_source"), githubCopilotUserDiscoveryURL)
+		require.NoError(t, err)
+		require.Equal(t, "gho_source", session.token)
+		require.Equal(t, githubCopilotDefaultAPIBase, session.apiBase)
+	})
+
+	t.Run("classic PAT", func(t *testing.T) {
+		upstream := &githubCopilotTestHTTPUpstream{do: func(_ *http.Request) (*http.Response, error) {
+			t.Fatal("classic PAT must be rejected before an upstream request")
+			return nil, nil
+		}}
+		_, err := discoverGitHubCopilotSessionAt(context.Background(), upstream, newGitHubCopilotTestAccount("ghp_classic"), githubCopilotUserDiscoveryURL)
+		require.Error(t, err)
+		var sessionErr *githubCopilotSessionError
+		require.ErrorAs(t, err, &sessionErr)
+		require.Equal(t, http.StatusBadRequest, sessionErr.statusCode)
+		require.Contains(t, err.Error(), "does not support classic")
+	})
+
+	t.Run("null response", func(t *testing.T) {
+		upstream := &githubCopilotTestHTTPUpstream{do: func(_ *http.Request) (*http.Response, error) {
+			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("null"))}, nil
+		}}
+		_, err := discoverGitHubCopilotSessionAt(context.Background(), upstream, newGitHubCopilotTestAccount("gho_source"), githubCopilotUserDiscoveryURL)
+		require.ErrorContains(t, err, "response must be a JSON object")
+	})
+}
+
+func TestApplyGitHubCopilotHeadersUsesTruthfulIdentityAndRequestIDs(t *testing.T) {
+	first := make(http.Header)
+	second := make(http.Header)
+
+	applyGitHubCopilotHeaders(first)
+	applyGitHubCopilotHeaders(second)
+
+	for _, header := range []http.Header{first, second} {
+		require.Equal(t, "application/json", header.Get("Content-Type"))
+		require.Equal(t, "sub2api", header.Get("Copilot-Integration-Id"))
+		require.Equal(t, "sub2api/1.0", header.Get("Editor-Version"))
+		require.Equal(t, "sub2api/1.0", header.Get("User-Agent"))
+		require.Equal(t, "2026-07-01", header.Get("X-GitHub-Api-Version"))
+		require.Equal(t, "conversation-agent", header.Get("OpenAI-Intent"))
+		require.Equal(t, "user", header.Get("X-Initiator"))
+
+		machineID, err := uuid.Parse(header.Get("X-Client-Machine-Id"))
+		require.NoError(t, err)
+		require.Equal(t, uuid.Version(4), machineID.Version())
+
+		interactionID, err := uuid.Parse(header.Get("X-Interaction-Id"))
+		require.NoError(t, err)
+		require.Equal(t, uuid.Version(4), interactionID.Version())
+	}
+
+	require.Equal(t, first.Get("X-Client-Machine-Id"), second.Get("X-Client-Machine-Id"))
+	require.NotEqual(t, first.Get("X-Interaction-Id"), second.Get("X-Interaction-Id"))
 }
 
 func TestEnsureGitHubCopilotSessionCachesAndRotatesCredential(t *testing.T) {
-	expiresAt := time.Now().Add(10 * time.Minute).Unix()
 	upstream := &githubCopilotTestHTTPUpstream{}
 	upstream.do = func(req *http.Request) (*http.Response, error) {
-		source := strings.TrimPrefix(req.Header.Get("Authorization"), "token ")
-		body := fmt.Sprintf(`{"token":"session-for-%s","expires_at":%d,"endpoints":{"api":"https://api.githubcopilot.com"}}`, source, expiresAt)
+		require.True(t, strings.HasPrefix(req.Header.Get("Authorization"), "Bearer "))
+		body := `{"chat_enabled":true,"endpoints":{"api":"https://api.githubcopilot.com"}}`
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
 	}
 	service := &OpenAIGatewayService{httpUpstream: upstream}
@@ -79,7 +156,7 @@ func TestEnsureGitHubCopilotSessionCachesAndRotatesCredential(t *testing.T) {
 	account.Credentials["api_key"] = "rotated"
 	rotated, err := service.ensureGitHubCopilotSession(context.Background(), account)
 	require.NoError(t, err)
-	require.Equal(t, "session-for-rotated", rotated.token)
+	require.Equal(t, "rotated", rotated.token)
 	require.Equal(t, 2, upstream.calls)
 }
 
@@ -105,20 +182,19 @@ func TestGitHubCopilotEndpointOmitsOpenAIV1Prefix(t *testing.T) {
 	require.Equal(t, "https://api.githubcopilot.com/chat/completions", endpoint)
 }
 
-func TestForwardAsRawChatCompletionsUsesExchangedCopilotToken(t *testing.T) {
+func TestForwardAsRawChatCompletionsUsesOriginalGitHubToken(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	expiresAt := time.Now().Add(10 * time.Minute).Unix()
 	upstream := &githubCopilotTestHTTPUpstream{}
 	upstream.do = func(req *http.Request) (*http.Response, error) {
 		switch upstream.calls {
 		case 1:
-			require.Equal(t, githubCopilotTokenExchangeURL, req.URL.String())
-			require.Equal(t, "token github-source-token", req.Header.Get("Authorization"))
-			body := fmt.Sprintf(`{"token":"copilot-session-token","expires_at":%d,"endpoints":{"api":"https://api.individual.githubcopilot.com"}}`, expiresAt)
+			require.Equal(t, githubCopilotUserDiscoveryURL, req.URL.String())
+			require.Equal(t, "Bearer github-source-token", req.Header.Get("Authorization"))
+			body := `{"chat_enabled":true,"endpoints":{"api":"https://api.individual.githubcopilot.com"}}`
 			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
 		case 2:
 			require.Equal(t, "https://api.individual.githubcopilot.com/chat/completions", req.URL.String())
-			require.Equal(t, "Bearer copilot-session-token", req.Header.Get("Authorization"))
+			require.Equal(t, "Bearer github-source-token", req.Header.Get("Authorization"))
 			require.Equal(t, githubCopilotIntegrationID, req.Header.Get("Copilot-Integration-Id"))
 			body := `{"id":"chatcmpl-copilot","object":"chat.completion","model":"gpt-5.4","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`
 			return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(body))}, nil
@@ -144,26 +220,23 @@ func TestForwardAsRawChatCompletionsUsesExchangedCopilotToken(t *testing.T) {
 	require.Contains(t, recorder.Body.String(), `"content":"ok"`)
 }
 
-func TestForwardAsRawChatCompletionsRefreshesCopilotTokenOnceAfter401(t *testing.T) {
+func TestForwardAsRawChatCompletionsRefreshesDiscoveryOnceAfter401(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	expiresAt := time.Now().Add(10 * time.Minute).Unix()
 	upstream := &githubCopilotTestHTTPUpstream{}
 	upstream.do = func(req *http.Request) (*http.Response, error) {
 		switch upstream.calls {
 		case 1, 3:
-			token := "stale-session"
 			apiBase := "https://api.githubcopilot.com"
 			if upstream.calls == 3 {
-				token = "fresh-session"
 				apiBase = "https://api.individual.githubcopilot.com"
 			}
-			body := fmt.Sprintf(`{"token":"%s","expires_at":%d,"endpoints":{"api":"%s"}}`, token, expiresAt, apiBase)
+			body := fmt.Sprintf(`{"chat_enabled":true,"endpoints":{"api":%q}}`, apiBase)
 			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
 		case 2:
-			require.Equal(t, "Bearer stale-session", req.Header.Get("Authorization"))
+			require.Equal(t, "Bearer github-source-token", req.Header.Get("Authorization"))
 			return &http.Response{StatusCode: http.StatusUnauthorized, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"error":"expired"}`))}, nil
 		case 4:
-			require.Equal(t, "Bearer fresh-session", req.Header.Get("Authorization"))
+			require.Equal(t, "Bearer github-source-token", req.Header.Get("Authorization"))
 			require.Equal(t, "https://api.individual.githubcopilot.com/chat/completions", req.URL.String())
 			body := `{"id":"chatcmpl-copilot","object":"chat.completion","model":"gpt-5.4","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`
 			return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(body))}, nil
@@ -186,15 +259,15 @@ func TestForwardAsRawChatCompletionsRefreshesCopilotTokenOnceAfter401(t *testing
 	require.Equal(t, 4, upstream.calls)
 }
 
-func TestForwardAsRawChatCompletionsCopilotExchangeFailureTriggersFailover(t *testing.T) {
+func TestForwardAsRawChatCompletionsCopilotDiscoveryFailureTriggersFailover(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	upstream := &githubCopilotTestHTTPUpstream{}
 	upstream.do = func(req *http.Request) (*http.Response, error) {
-		require.Equal(t, githubCopilotTokenExchangeURL, req.URL.String())
+		require.Equal(t, githubCopilotUserDiscoveryURL, req.URL.String())
 		return &http.Response{
 			StatusCode: http.StatusForbidden,
-			Header:     http.Header{"X-Request-Id": []string{"copilot-exchange-denied"}},
-			Body:       io.NopCloser(strings.NewReader(`{"error":"forbidden"}`)),
+			Header:     http.Header{"X-Request-Id": []string{"gho-sensitive-reflection"}},
+			Body:       io.NopCloser(strings.NewReader(`{"error":"gho-sensitive-reflection"}`)),
 		}, nil
 	}
 	body := []byte(`{"model":"gpt-5.4","messages":[{"role":"user","content":"hello"}],"stream":false}`)
@@ -208,18 +281,69 @@ func TestForwardAsRawChatCompletionsCopilotExchangeFailureTriggersFailover(t *te
 	var failoverErr *UpstreamFailoverError
 	require.ErrorAs(t, err, &failoverErr)
 	require.Equal(t, http.StatusForbidden, failoverErr.StatusCode)
-	require.JSONEq(t, `{"error":"forbidden"}`, string(failoverErr.ResponseBody))
-	require.Equal(t, "copilot-exchange-denied", failoverErr.ResponseHeaders.Get("X-Request-Id"))
+	require.JSONEq(t, `{"error":{"message":"GitHub Copilot access is unavailable for this account","type":"permission_error"}}`, string(failoverErr.ResponseBody))
+	require.NotContains(t, string(failoverErr.ResponseBody), "gho-sensitive-reflection")
+	require.Empty(t, failoverErr.ResponseHeaders.Get("X-Request-Id"))
+}
+
+func TestGitHubCopilotFailoverErrorNormalizesDiscoveryStatusesAndHeaders(t *testing.T) {
+	tests := []struct {
+		name       string
+		sessionErr *githubCopilotSessionError
+		wantStatus int
+		wantRetry  string
+	}{
+		{
+			name: "secondary rate limit",
+			sessionErr: &githubCopilotSessionError{
+				statusCode:      http.StatusForbidden,
+				responseBody:    []byte(`{"message":"rate limit gho-sensitive-source"}`),
+				responseHeaders: http.Header{"Retry-After": []string{"17"}, "X-Request-Id": []string{"gho-sensitive-source"}},
+				operation:       "GitHub Copilot access discovery returned HTTP 403",
+			},
+			wantStatus: http.StatusTooManyRequests,
+			wantRetry:  "17",
+		},
+		{
+			name: "permission-hidden not found",
+			sessionErr: &githubCopilotSessionError{
+				statusCode:   http.StatusNotFound,
+				responseBody: []byte(`{"message":"Not Found"}`),
+				operation:    "GitHub Copilot access discovery returned HTTP 404",
+			},
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name: "unsupported classic PAT",
+			sessionErr: &githubCopilotSessionError{
+				statusCode: http.StatusBadRequest,
+				operation:  "GitHub Copilot does not support classic personal access tokens",
+			},
+			wantStatus: http.StatusUnauthorized,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var failoverErr *UpstreamFailoverError
+			err := (&OpenAIGatewayService{}).githubCopilotFailoverError(context.Background(), newGitHubCopilotTestAccount("source"), test.sessionErr)
+			require.ErrorAs(t, err, &failoverErr)
+			require.Equal(t, test.wantStatus, failoverErr.StatusCode)
+			require.Equal(t, test.wantRetry, failoverErr.ResponseHeaders.Get("Retry-After"))
+			require.Equal(t, "application/json", failoverErr.ResponseHeaders.Get("Content-Type"))
+			require.Empty(t, failoverErr.ResponseHeaders.Get("X-Request-Id"))
+			require.NotContains(t, string(failoverErr.ResponseBody), "gho-sensitive-source")
+		})
+	}
 }
 
 func TestForwardAsRawChatCompletionsCopilotRefreshFailureTriggersFailover(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	expiresAt := time.Now().Add(10 * time.Minute).Unix()
 	upstream := &githubCopilotTestHTTPUpstream{}
 	upstream.do = func(req *http.Request) (*http.Response, error) {
 		switch upstream.calls {
 		case 1:
-			body := fmt.Sprintf(`{"token":"stale-session","expires_at":%d,"endpoints":{"api":"https://api.githubcopilot.com"}}`, expiresAt)
+			body := `{"chat_enabled":true,"endpoints":{"api":"https://api.githubcopilot.com"}}`
 			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
 		case 2:
 			return &http.Response{StatusCode: http.StatusUnauthorized, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"error":"expired"}`))}, nil
@@ -257,7 +381,7 @@ func (u *blockingGitHubCopilotUpstream) Do(req *http.Request, _ string, accountI
 	case <-req.Context().Done():
 		return nil, req.Context().Err()
 	}
-	body := fmt.Sprintf(`{"token":"session-%d","expires_at":%d,"endpoints":{"api":"https://api.githubcopilot.com"}}`, accountID, time.Now().Add(10*time.Minute).Unix())
+	body := `{"chat_enabled":true,"endpoints":{"api":"https://api.githubcopilot.com"}}`
 	return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(body))}, nil
 }
 
@@ -313,7 +437,7 @@ func TestEnsureGitHubCopilotSessionDoesNotSerializeDifferentAccounts(t *testing.
 			seen[accountID] = true
 		case <-time.After(time.Second):
 			close(upstream.release)
-			t.Fatal("token exchanges for different accounts were serialized")
+			t.Fatal("access discovery for different accounts was serialized")
 		}
 	}
 	close(upstream.release)
@@ -326,21 +450,25 @@ func TestEnsureGitHubCopilotSessionDoesNotSerializeDifferentAccounts(t *testing.
 
 func TestInvalidateGitHubCopilotSessionOnlyDeletesObservedSession(t *testing.T) {
 	service := &OpenAIGatewayService{}
-	fresh := githubCopilotSession{token: "same-token", apiBase: githubCopilotDefaultAPIBase, refreshSeq: 2}
-	stale := githubCopilotSession{token: "same-token", apiBase: githubCopilotDefaultAPIBase, refreshSeq: 1}
-	service.githubCopilotSessions.Store(int64(42), fresh)
+	sourceHash := sha256.Sum256([]byte("same-token"))
+	fresh := githubCopilotSession{token: "same-token", apiBase: githubCopilotDefaultAPIBase, sourceHash: sourceHash, refreshSeq: 2}
+	stale := githubCopilotSession{token: "same-token", apiBase: githubCopilotDefaultAPIBase, sourceHash: sourceHash, refreshSeq: 1}
+	service.storeGitHubCopilotSession(42, fresh)
 	require.False(t, service.invalidateGitHubCopilotSession(42, stale))
 	raw, ok := service.githubCopilotSessions.Load(int64(42))
 	require.True(t, ok)
-	require.Equal(t, fresh, raw.(githubCopilotSession))
+	cached := raw.(githubCopilotSession)
+	require.Empty(t, cached.token)
+	require.Equal(t, fresh.apiBase, cached.apiBase)
+	require.Equal(t, fresh.refreshSeq, cached.refreshSeq)
 	require.True(t, service.invalidateGitHubCopilotSession(42, fresh))
 	_, ok = service.githubCopilotSessions.Load(int64(42))
 	require.False(t, ok)
 }
 
-func TestGitHubCopilotFailoverErrorDistinguishesRequestAndExchangeDeadlines(t *testing.T) {
+func TestGitHubCopilotFailoverErrorDistinguishesRequestAndDiscoveryDeadlines(t *testing.T) {
 	service := &OpenAIGatewayService{}
-	internalTimeout := newGitHubCopilotSessionError(http.StatusBadGateway, "exchange GitHub Copilot token", context.DeadlineExceeded)
+	internalTimeout := newGitHubCopilotSessionError(http.StatusBadGateway, "discover GitHub Copilot access", context.DeadlineExceeded)
 	var failoverErr *UpstreamFailoverError
 	require.ErrorAs(t, service.githubCopilotFailoverError(context.Background(), newGitHubCopilotTestAccount("source"), internalTimeout), &failoverErr)
 	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)

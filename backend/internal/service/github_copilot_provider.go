@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -9,20 +10,31 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 const (
-	githubCopilotTokenExchangeURL = "https://api.github.com/copilot_internal/v2/token"
+	githubCopilotUserDiscoveryURL = "https://api.github.com/copilot_internal/user"
 	githubCopilotDefaultAPIBase   = "https://api.githubcopilot.com"
-	githubCopilotIntegrationID    = "vscode-chat"
-	githubCopilotEditorVersion    = "vscode/1.107.0"
-	githubCopilotUserAgent        = "GitHubCopilotChat/0.35.0"
+	githubCopilotIntegrationID    = "sub2api"
+	githubCopilotEditorVersion    = "sub2api/1.0"
+	githubCopilotUserAgent        = "sub2api/1.0"
+	githubCopilotAPIVersion       = "2026-07-01"
+	githubCopilotOpenAIIntent     = "conversation-agent"
+	githubCopilotInitiator        = "user"
 	githubCopilotDefaultModel     = "gpt-5.4"
-	githubCopilotTokenBodyLimit   = 64 * 1024
-	githubCopilotExchangeTimeout  = 30 * time.Second
+	githubCopilotDiscoveryTTL     = 10 * time.Minute
+	githubCopilotBodyLimit        = 64 * 1024
+	githubCopilotDiscoveryTimeout = 30 * time.Second
 )
+
+// githubCopilotMachineID identifies this sub2api process, not the host. It is
+// intentionally random and process-local so no hardware identifier is exposed.
+var githubCopilotMachineID = uuid.NewString()
 
 type githubCopilotSession struct {
 	token      string
@@ -65,10 +77,12 @@ func newGitHubCopilotSessionError(statusCode int, operation string, cause error)
 	}
 }
 
-type githubCopilotTokenResponse struct {
-	Token     string `json:"token"`
-	ExpiresAt int64  `json:"expires_at"`
-	Endpoints struct {
+type githubCopilotUserDiscoveryResponse struct {
+	AccessTypeSKU       string `json:"access_type_sku"`
+	CanSignupForLimited bool   `json:"can_signup_for_limited"`
+	ChatEnabled         *bool  `json:"chat_enabled"`
+	CopilotPlan         string `json:"copilot_plan"`
+	Endpoints           struct {
 		API string `json:"api"`
 	} `json:"endpoints"`
 }
@@ -86,6 +100,7 @@ func (s *OpenAIGatewayService) ensureGitHubCopilotSession(ctx context.Context, a
 	}
 	sourceHash := sha256.Sum256([]byte(sourceToken))
 	if cached, ok := s.loadValidGitHubCopilotSession(account.ID, sourceHash); ok {
+		cached.token = sourceToken
 		return cached, nil
 	}
 
@@ -95,18 +110,19 @@ func (s *OpenAIGatewayService) ensureGitHubCopilotSession(ctx context.Context, a
 	if ctx != nil {
 		baseCtx = context.WithoutCancel(ctx)
 	}
-	resultCh := s.githubCopilotTokenSF.DoChan(flightKey, func() (any, error) {
+	resultCh := s.githubCopilotDiscoverySF.DoChan(flightKey, func() (any, error) {
 		if cached, ok := s.loadValidGitHubCopilotSession(account.ID, sourceHash); ok {
+			cached.token = sourceToken
 			return cached, nil
 		}
-		exchangeCtx, cancel := context.WithTimeout(baseCtx, githubCopilotExchangeTimeout)
+		discoveryCtx, cancel := context.WithTimeout(baseCtx, githubCopilotDiscoveryTimeout)
 		defer cancel()
-		session, err := exchangeGitHubCopilotTokenWithSource(
-			exchangeCtx,
+		session, err := discoverGitHubCopilotSessionWithSource(
+			discoveryCtx,
 			s.httpUpstream,
 			account,
 			sourceToken,
-			githubCopilotTokenExchangeURL,
+			githubCopilotUserDiscoveryURL,
 		)
 		if err != nil {
 			return nil, err
@@ -135,7 +151,7 @@ func (s *OpenAIGatewayService) ensureGitHubCopilotSession(ctx context.Context, a
 	}
 	session, ok := result.(githubCopilotSession)
 	if !ok {
-		return githubCopilotSession{}, newGitHubCopilotSessionError(http.StatusBadGateway, "initialize GitHub Copilot session", errors.New("invalid shared token exchange result"))
+		return githubCopilotSession{}, newGitHubCopilotSessionError(http.StatusBadGateway, "initialize GitHub Copilot session", errors.New("invalid shared access discovery result"))
 	}
 	return session, nil
 }
@@ -153,7 +169,7 @@ func (s *OpenAIGatewayService) loadValidGitHubCopilotSession(accountID int64, so
 	if session.sourceHash != sourceHash {
 		return githubCopilotSession{}, false
 	}
-	if session.token == "" || session.apiBase == "" || !time.Now().Before(session.expiresAt.Add(-time.Minute)) {
+	if session.apiBase == "" || !time.Now().Before(session.expiresAt.Add(-time.Minute)) {
 		s.githubCopilotSessions.CompareAndDelete(accountID, raw)
 		return githubCopilotSession{}, false
 	}
@@ -161,6 +177,10 @@ func (s *OpenAIGatewayService) loadValidGitHubCopilotSession(accountID int64, so
 }
 
 func (s *OpenAIGatewayService) storeGitHubCopilotSession(accountID int64, session githubCopilotSession) {
+	// The original GitHub token already lives in the encrypted account
+	// credentials. Cache only discovery metadata so the long-lived token is not
+	// duplicated in process-wide memory.
+	session.token = ""
 	for {
 		raw, loaded := s.githubCopilotSessions.Load(accountID)
 		if !loaded {
@@ -200,13 +220,14 @@ func (s *OpenAIGatewayService) observeGitHubCopilotSession(accountID int64, toke
 		return githubCopilotSession{}, false
 	}
 	session, ok := raw.(githubCopilotSession)
-	if !ok || session.token != token {
+	if !ok || session.sourceHash != sha256.Sum256([]byte(token)) {
 		return githubCopilotSession{}, false
 	}
 	sessionTargetURL, err := githubCopilotAPIEndpoint(session.apiBase, "/chat/completions")
 	if err != nil || sessionTargetURL != targetURL {
 		return githubCopilotSession{}, false
 	}
+	session.token = token
 	return session, true
 }
 
@@ -214,6 +235,7 @@ func (s *OpenAIGatewayService) invalidateGitHubCopilotSession(accountID int64, s
 	if s == nil || strings.TrimSpace(staleSession.token) == "" {
 		return false
 	}
+	staleSession.token = ""
 	return s.githubCopilotSessions.CompareAndDelete(accountID, staleSession)
 }
 
@@ -237,8 +259,19 @@ func (s *OpenAIGatewayService) githubCopilotFailoverError(ctx context.Context, a
 		if sessionErr.statusCode > 0 {
 			statusCode = sessionErr.statusCode
 		}
-		responseBody = sessionErr.responseBody
-		responseHeaders = sessionErr.responseHeaders
+		if statusCode == http.StatusForbidden && isGitHubRateLimitResponse(sessionErr.responseHeaders, sessionErr.responseBody) {
+			statusCode = http.StatusTooManyRequests
+		} else if statusCode == http.StatusNotFound {
+			// GitHub deliberately uses 404 for resources the token cannot access.
+			// Do not surface it as a missing downstream model or endpoint.
+			statusCode = http.StatusForbidden
+		} else if statusCode == http.StatusBadRequest && strings.Contains(strings.ToLower(sessionErr.operation), "classic personal access token") {
+			// Existing accounts created before validation was added should leave the
+			// scheduler after their unsupported classic PAT is discovered.
+			statusCode = http.StatusUnauthorized
+		}
+		responseBody = githubCopilotSafeFailoverBody(statusCode)
+		responseHeaders = githubCopilotSafeResponseHeaders(sessionErr.responseHeaders)
 	}
 	if s != nil {
 		s.handleOpenAIAccountUpstreamError(ctx, account, statusCode, responseHeaders, responseBody)
@@ -250,42 +283,97 @@ func (s *OpenAIGatewayService) githubCopilotFailoverError(ctx context.Context, a
 	}
 }
 
-func exchangeGitHubCopilotTokenAt(
+func githubCopilotSafeFailoverBody(statusCode int) []byte {
+	message := "GitHub Copilot access discovery failed"
+	errorType := "upstream_error"
+	switch statusCode {
+	case http.StatusUnauthorized:
+		message = "GitHub Copilot authentication failed"
+		errorType = "authentication_error"
+	case http.StatusForbidden:
+		message = "GitHub Copilot access is unavailable for this account"
+		errorType = "permission_error"
+	case http.StatusTooManyRequests:
+		message = "GitHub Copilot rate limit exceeded"
+		errorType = "rate_limit_error"
+	}
+	body, _ := json.Marshal(map[string]any{
+		"error": map[string]string{
+			"message": message,
+			"type":    errorType,
+		},
+	})
+	return body
+}
+
+func githubCopilotSafeResponseHeaders(upstream http.Header) http.Header {
+	filtered := make(http.Header)
+	filtered.Set("Content-Type", "application/json")
+	if upstream == nil {
+		return filtered
+	}
+
+	if value := strings.TrimSpace(upstream.Get("Retry-After")); value != "" {
+		if seconds, err := strconv.ParseInt(value, 10, 64); err == nil && seconds >= 0 {
+			filtered.Set("Retry-After", strconv.FormatInt(seconds, 10))
+		} else if retryAt, err := http.ParseTime(value); err == nil {
+			filtered.Set("Retry-After", retryAt.UTC().Format(http.TimeFormat))
+		}
+	}
+	for _, name := range []string{"X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"} {
+		value := strings.TrimSpace(upstream.Get(name))
+		parsed, err := strconv.ParseInt(value, 10, 64)
+		if value != "" && err == nil && parsed >= 0 {
+			filtered.Set(name, strconv.FormatInt(parsed, 10))
+		}
+	}
+	return filtered
+}
+
+func discoverGitHubCopilotSessionAt(
 	ctx context.Context,
 	upstream HTTPUpstream,
 	account *Account,
-	exchangeURL string,
+	discoveryURL string,
 ) (githubCopilotSession, error) {
 	if account == nil {
-		return githubCopilotSession{}, newGitHubCopilotSessionError(http.StatusBadGateway, "exchange GitHub Copilot token", errors.New("GitHub Copilot account is required"))
+		return githubCopilotSession{}, newGitHubCopilotSessionError(http.StatusBadGateway, "discover GitHub Copilot access", errors.New("GitHub Copilot account is required"))
 	}
-	return exchangeGitHubCopilotTokenWithSource(ctx, upstream, account, strings.TrimSpace(account.GetCredential("api_key")), exchangeURL)
+	return discoverGitHubCopilotSessionWithSource(ctx, upstream, account, strings.TrimSpace(account.GetCredential("api_key")), discoveryURL)
 }
 
-func exchangeGitHubCopilotTokenWithSource(
+func discoverGitHubCopilotSessionWithSource(
 	ctx context.Context,
 	upstream HTTPUpstream,
 	account *Account,
 	sourceToken string,
-	exchangeURL string,
+	discoveryURL string,
 ) (githubCopilotSession, error) {
 	if upstream == nil {
-		return githubCopilotSession{}, newGitHubCopilotSessionError(http.StatusBadGateway, "exchange GitHub Copilot token", errors.New("upstream HTTP client is not configured"))
+		return githubCopilotSession{}, newGitHubCopilotSessionError(http.StatusBadGateway, "discover GitHub Copilot access", errors.New("upstream HTTP client is not configured"))
 	}
 	if account == nil {
-		return githubCopilotSession{}, newGitHubCopilotSessionError(http.StatusBadGateway, "exchange GitHub Copilot token", errors.New("GitHub Copilot account is required"))
+		return githubCopilotSession{}, newGitHubCopilotSessionError(http.StatusBadGateway, "discover GitHub Copilot access", errors.New("GitHub Copilot account is required"))
 	}
 	sourceToken = strings.TrimSpace(sourceToken)
 	if sourceToken == "" {
-		return githubCopilotSession{}, newGitHubCopilotSessionError(http.StatusUnauthorized, "exchange GitHub Copilot token", errors.New("GitHub token not found in credentials"))
+		return githubCopilotSession{}, newGitHubCopilotSessionError(http.StatusUnauthorized, "discover GitHub Copilot access", errors.New("GitHub token not found in credentials"))
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, exchangeURL, nil)
+	if strings.HasPrefix(sourceToken, "ghp_") {
+		return githubCopilotSession{}, &githubCopilotSessionError{
+			statusCode: http.StatusBadRequest,
+			operation:  "GitHub Copilot does not support classic personal access tokens; use GitHub authorization or a fine-grained token",
+		}
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, discoveryURL, nil)
 	if err != nil {
-		return githubCopilotSession{}, newGitHubCopilotSessionError(http.StatusBadGateway, "build GitHub Copilot token request", err)
+		return githubCopilotSession{}, newGitHubCopilotSessionError(http.StatusBadGateway, "build GitHub Copilot access discovery request", err)
 	}
-	req.Header.Set("Authorization", "token "+sourceToken)
+	// Current Copilot CLI and SDK pass the original GitHub user token directly.
+	// The discovery endpoint returns entitlement metadata and the account-specific
+	// Copilot API base; it does not mint a second short-lived token.
+	req.Header.Set("Authorization", "Bearer "+sourceToken)
 	req.Header.Set("Accept", "application/json")
-	applyGitHubCopilotHeaders(req.Header)
 
 	proxyURL := ""
 	if account.Proxy != nil {
@@ -293,36 +381,41 @@ func exchangeGitHubCopilotTokenWithSource(
 	}
 	resp, err := upstream.Do(req, proxyURL, account.ID, account.Concurrency)
 	if err != nil {
-		return githubCopilotSession{}, newGitHubCopilotSessionError(http.StatusBadGateway, "exchange GitHub Copilot token", err)
+		return githubCopilotSession{}, newGitHubCopilotSessionError(http.StatusBadGateway, "discover GitHub Copilot access", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, githubCopilotTokenBodyLimit+1))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, githubCopilotBodyLimit+1))
 	if err != nil {
-		return githubCopilotSession{}, newGitHubCopilotSessionError(http.StatusBadGateway, "read GitHub Copilot token response", err)
+		return githubCopilotSession{}, newGitHubCopilotSessionError(http.StatusBadGateway, "read GitHub Copilot access discovery response", err)
 	}
-	if len(body) > githubCopilotTokenBodyLimit {
-		return githubCopilotSession{}, newGitHubCopilotSessionError(http.StatusBadGateway, "read GitHub Copilot token response", errors.New("response is too large"))
+	if len(body) > githubCopilotBodyLimit {
+		return githubCopilotSession{}, newGitHubCopilotSessionError(http.StatusBadGateway, "read GitHub Copilot access discovery response", errors.New("response is too large"))
 	}
 	if resp.StatusCode != http.StatusOK {
 		return githubCopilotSession{}, &githubCopilotSessionError{
 			statusCode:      resp.StatusCode,
 			responseBody:    append([]byte(nil), body...),
 			responseHeaders: resp.Header.Clone(),
-			operation:       fmt.Sprintf("GitHub Copilot token exchange returned HTTP %d", resp.StatusCode),
+			operation:       fmt.Sprintf("GitHub Copilot access discovery returned HTTP %d", resp.StatusCode),
 		}
 	}
+	if bytes.Equal(bytes.TrimSpace(body), []byte("null")) {
+		return githubCopilotSession{}, newGitHubCopilotSessionError(http.StatusBadGateway, "parse GitHub Copilot access discovery response", errors.New("response must be a JSON object"))
+	}
 
-	var parsed githubCopilotTokenResponse
+	var parsed githubCopilotUserDiscoveryResponse
 	if err := json.Unmarshal(body, &parsed); err != nil {
-		return githubCopilotSession{}, newGitHubCopilotSessionError(http.StatusBadGateway, "parse GitHub Copilot token response", err)
+		return githubCopilotSession{}, newGitHubCopilotSessionError(http.StatusBadGateway, "parse GitHub Copilot access discovery response", err)
 	}
-	parsed.Token = strings.TrimSpace(parsed.Token)
-	if parsed.Token == "" {
-		return githubCopilotSession{}, newGitHubCopilotSessionError(http.StatusBadGateway, "parse GitHub Copilot token response", errors.New("response did not contain a token"))
-	}
-	expiresAt := time.Unix(parsed.ExpiresAt, 0)
-	if parsed.ExpiresAt <= 0 || !expiresAt.After(time.Now()) {
-		return githubCopilotSession{}, newGitHubCopilotSessionError(http.StatusBadGateway, "parse GitHub Copilot token response", errors.New("response contained an invalid expiry"))
+	if strings.EqualFold(strings.TrimSpace(parsed.AccessTypeSKU), "no_access") {
+		operation := "GitHub Copilot access is not enabled for this account"
+		if parsed.CanSignupForLimited {
+			operation = "GitHub Copilot must be enabled for this account before it can be used"
+		}
+		return githubCopilotSession{}, &githubCopilotSessionError{
+			statusCode: http.StatusForbidden,
+			operation:  operation,
+		}
 	}
 	apiBase := strings.TrimSpace(parsed.Endpoints.API)
 	if apiBase == "" {
@@ -332,7 +425,11 @@ func exchangeGitHubCopilotTokenWithSource(
 	if err != nil {
 		return githubCopilotSession{}, newGitHubCopilotSessionError(http.StatusBadGateway, "validate GitHub Copilot API endpoint", err)
 	}
-	return githubCopilotSession{token: parsed.Token, apiBase: apiBase, expiresAt: expiresAt}, nil
+	return githubCopilotSession{
+		token:     sourceToken,
+		apiBase:   apiBase,
+		expiresAt: time.Now().Add(githubCopilotDiscoveryTTL),
+	}, nil
 }
 
 func validateGitHubCopilotAPIBase(raw string) (string, error) {
@@ -360,8 +457,13 @@ func githubCopilotAPIEndpoint(apiBase, endpoint string) (string, error) {
 }
 
 func applyGitHubCopilotHeaders(header http.Header) {
+	header.Set("Content-Type", "application/json")
 	header.Set("Editor-Version", githubCopilotEditorVersion)
 	header.Set("Copilot-Integration-Id", githubCopilotIntegrationID)
-	header.Set("X-GitHub-Api-Version", "2022-11-28")
+	header.Set("X-GitHub-Api-Version", githubCopilotAPIVersion)
+	header.Set("OpenAI-Intent", githubCopilotOpenAIIntent)
+	header.Set("X-Initiator", githubCopilotInitiator)
+	header.Set("X-Client-Machine-Id", githubCopilotMachineID)
+	header.Set("X-Interaction-Id", uuid.NewString())
 	header.Set("User-Agent", githubCopilotUserAgent)
 }

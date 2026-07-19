@@ -531,7 +531,7 @@ export default {
             tokenKeptOnServer: 'OAuth Token 只保存在服务端，浏览器仅持有不透明的短期会话 ID。',
             expired: '本次授权码已过期，请重新开始授权。',
             denied: 'GitHub 授权已取消或被拒绝。',
-            entitlementRequired: '该 GitHub 账号没有可用的 Copilot 权益，请确认订阅和组织策略。',
+            entitlementRequired: '该 GitHub 账号无法访问 Copilot，请确认套餐、Token 权限和组织策略。',
             failed: 'GitHub 授权失败。',
             tryAgain: '重试',
             authorizationRequired: '请先完成 GitHub 授权，再创建账号。'

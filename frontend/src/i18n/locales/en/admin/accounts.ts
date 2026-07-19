@@ -430,7 +430,7 @@ export default {
             expired: 'This authorization code has expired. Start again to get a new code.',
             denied: 'GitHub authorization was cancelled or denied.',
             entitlementRequired:
-              'This GitHub account does not have an available Copilot entitlement. Check its subscription and organization policy.',
+              'This GitHub account cannot access Copilot. Check its plan, token permissions, and organization policy.',
             failed: 'GitHub authorization failed.',
             tryAgain: 'Try again',
             authorizationRequired: 'Complete GitHub authorization before creating the account.'
