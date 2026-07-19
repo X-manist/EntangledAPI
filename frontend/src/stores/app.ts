@@ -14,6 +14,9 @@ import {
 } from '@/api/admin/system'
 import { getPublicSettings as fetchPublicSettingsAPI } from '@/api/auth'
 
+const DEFAULT_UPDATE_REPOSITORY = 'X-manist/EntangledAPI'
+const DEFAULT_UPDATE_DOCKER_IMAGE = 'ghcr.io/x-manist/sub2api'
+
 export const useAppStore = defineStore('app', () => {
   // ==================== State ====================
 
@@ -43,8 +46,8 @@ export const useAppStore = defineStore('app', () => {
   const hasUpdate = ref<boolean>(false)
   const buildType = ref<string>('source')
   const releaseInfo = ref<ReleaseInfo | null>(null)
-  const updateRepository = ref<string>('Wei-Shaw/sub2api')
-  const updateDockerImage = ref<string>('weishaw/sub2api')
+  const updateRepository = ref<string>(DEFAULT_UPDATE_REPOSITORY)
+  const updateDockerImage = ref<string>(DEFAULT_UPDATE_DOCKER_IMAGE)
 
   // Auto-incrementing ID for toasts
   let toastIdCounter = 0
@@ -270,8 +273,8 @@ export const useAppStore = defineStore('app', () => {
       hasUpdate.value = data.has_update
       buildType.value = data.build_type || 'source'
       releaseInfo.value = data.release_info || null
-      updateRepository.value = data.repository || 'Wei-Shaw/sub2api'
-      updateDockerImage.value = data.docker_image || 'weishaw/sub2api'
+      updateRepository.value = data.repository || DEFAULT_UPDATE_REPOSITORY
+      updateDockerImage.value = data.docker_image || DEFAULT_UPDATE_DOCKER_IMAGE
       versionLoaded.value = true
       return data
     } catch (error) {

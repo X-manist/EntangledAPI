@@ -651,6 +651,10 @@ import {
 import { useClipboard } from '@/composables/useClipboard'
 import Icon from '@/components/icons/Icon.vue'
 
+const OFFICIAL_UPDATE_REPOSITORY = 'Wei-Shaw/sub2api'
+const DEFAULT_UPDATE_REPOSITORY = 'X-manist/EntangledAPI'
+const DEFAULT_UPDATE_DOCKER_IMAGE = 'ghcr.io/x-manist/sub2api'
+
 const { t } = useI18n()
 
 const props = defineProps<{
@@ -672,8 +676,13 @@ const latestVersion = computed(() => appStore.latestVersion)
 const hasUpdate = computed(() => appStore.hasUpdate)
 const releaseInfo = computed(() => appStore.releaseInfo)
 const buildType = computed(() => appStore.buildType)
-const updateRepository = computed(() => appStore.updateRepository || 'Wei-Shaw/sub2api')
-const updateDockerImage = computed(() => appStore.updateDockerImage || 'weishaw/sub2api')
+const updateRepository = computed(() => appStore.updateRepository || DEFAULT_UPDATE_REPOSITORY)
+const updateDockerImage = computed(() => appStore.updateDockerImage || DEFAULT_UPDATE_DOCKER_IMAGE)
+const updateChannel = computed<'custom' | 'official'>(() =>
+  updateRepository.value.toLowerCase() === OFFICIAL_UPDATE_REPOSITORY.toLowerCase()
+    ? 'official'
+    : 'custom'
+)
 
 // Update process states (local to this component)
 const updating = ref(false)
@@ -698,33 +707,95 @@ const { copied, copyToClipboard } = useClipboard()
 
 // Manual rollback methods differ by deployment: script installs use install.sh,
 // docker deployments pin the image tag instead
-const manualTab = ref<'script' | 'docker'>('script')
+type ManualRollbackTab = 'script-public' | 'script-private' | 'docker'
+const manualTab = ref<ManualRollbackTab>('script-public')
 
-const manualTabs = computed(() => [
-  { key: 'script' as const, label: t('version.deployScript') },
-  { key: 'docker' as const, label: t('version.deployDocker') }
-])
+const manualTabs = computed<Array<{ key: ManualRollbackTab; label: string }>>(() => {
+  const tabs: Array<{ key: ManualRollbackTab; label: string }> = [
+    { key: 'script-public', label: t('version.deployScriptPublic') }
+  ]
+  if (updateChannel.value === 'custom') {
+    tabs.push({ key: 'script-private', label: t('version.deployScriptPrivate') })
+  }
+  tabs.push({ key: 'docker', label: t('version.deployDocker') })
+  return tabs
+})
 
-const scriptRollbackCommand = computed(() => {
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'"'"'`)}'`
+}
+
+const publicScriptRollbackCommand = computed(() => {
   if (!selectedRollbackVersion.value) return ''
   const tag = `v${selectedRollbackVersion.value}`
-  return `curl -sSL https://raw.githubusercontent.com/${updateRepository.value}/${tag}/deploy/install.sh | sudo bash -s -- rollback ${tag}`
+  return [
+    'set -eu',
+    'installer=$(mktemp)',
+    'trap \'rm -f "$installer"\' EXIT',
+    `curl -fsSL ${shellQuote(`https://raw.githubusercontent.com/${updateRepository.value}/${tag}/deploy/install.sh`)} -o "$installer"`,
+    `sudo bash "$installer" rollback ${shellQuote(tag)} --channel ${shellQuote(updateChannel.value)} --repository ${shellQuote(updateRepository.value)}`
+  ].join('\n')
+})
+
+const privateScriptRollbackCommand = computed(() => {
+  if (!selectedRollbackVersion.value) return ''
+  const tag = `v${selectedRollbackVersion.value}`
+  return [
+    'set -eu',
+    '# export GITHUB_TOKEN=github_pat_replace_me',
+    ': "${GITHUB_TOKEN:?Export a read-only GITHUB_TOKEN first}"',
+    'installer=$(mktemp)',
+    'trap \'rm -f "$installer"\' EXIT',
+    'curl -fsSL \\',
+    '  -H "Accept: application/vnd.github.raw+json" \\',
+    '  -H "Authorization: Bearer $GITHUB_TOKEN" \\',
+    `  ${shellQuote(`https://api.github.com/repos/${updateRepository.value}/contents/deploy/install.sh?ref=${tag}`)} \\`,
+    '  -o "$installer"',
+    `sudo env GITHUB_TOKEN="$GITHUB_TOKEN" bash "$installer" rollback ${shellQuote(tag)} --channel ${shellQuote(updateChannel.value)} --repository ${shellQuote(updateRepository.value)}`
+  ].join('\n')
 })
 
 const dockerRollbackCommand = computed(() => {
   if (!selectedRollbackVersion.value) return ''
   return [
-    `# ${t('version.dockerEditCompose')}`,
-    `image: ${updateDockerImage.value}:${selectedRollbackVersion.value}`,
+    'set -eu',
+    `# ${t('version.dockerEditCompose')} (${updateChannel.value})`,
+    'env_file="${SUB2API_ENV_FILE:-.env}"',
+    'touch "$env_file"',
+    'env_dir=$(dirname "$env_file")',
+    'env_name=$(basename "$env_file")',
+    'set_env() {',
+    '  key=$1',
+    '  value=$2',
+    '  tmp=$(mktemp "${env_dir}/.${env_name}.XXXXXX")',
+    '  awk -v key="$key" \'index($0, key "=") != 1 { print }\' "$env_file" > "$tmp"',
+    '  printf \'%s=%s\\n\' "$key" "$value" >> "$tmp"',
+    '  mv "$tmp" "$env_file"',
+    '}',
+    `set_env SUB2API_IMAGE ${shellQuote(`${updateDockerImage.value}:${selectedRollbackVersion.value}`)}`,
+    `set_env UPDATE_REPOSITORY ${shellQuote(updateRepository.value)}`,
+    `set_env UPDATE_DOCKER_IMAGE ${shellQuote(updateDockerImage.value)}`,
+    ...(updateChannel.value === 'official' ? ["set_env UPDATE_GITHUB_TOKEN ''"] : []),
+    'set_env SUB2API_RUNTIME_SEED_POLICY \'if-missing\'',
     '',
+    'docker compose config >/dev/null',
+    'docker compose pull sub2api',
     `# ${t('version.dockerRecreate')}`,
-    'docker compose up -d'
+    'SUB2API_RUNTIME_SEED_POLICY=always docker compose up -d --force-recreate --wait sub2api',
+    'docker compose up -d --force-recreate --wait sub2api'
   ].join('\n')
 })
 
-const activeManualCommand = computed(() =>
-  manualTab.value === 'docker' ? dockerRollbackCommand.value : scriptRollbackCommand.value
-)
+const activeManualCommand = computed(() => {
+  switch (manualTab.value) {
+    case 'script-private':
+      return privateScriptRollbackCommand.value
+    case 'docker':
+      return dockerRollbackCommand.value
+    default:
+      return publicScriptRollbackCommand.value
+  }
+})
 
 // Only show update check for release builds (binary/docker deployment)
 const isReleaseBuild = computed(() => buildType.value === 'release')
@@ -777,7 +848,7 @@ function resetRollbackState() {
   rollbackVersionsError.value = ''
   selectedRollbackVersion.value = ''
   rollbackError.value = ''
-  manualTab.value = 'script'
+  manualTab.value = 'script-public'
 }
 
 async function toggleRollbackPanel() {

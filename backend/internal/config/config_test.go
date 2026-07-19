@@ -103,8 +103,8 @@ func TestLoadDefaultUpdateConfig(t *testing.T) {
 
 	cfg, err := Load()
 	require.NoError(t, err)
-	require.Equal(t, "Wei-Shaw/sub2api", cfg.Update.Repository)
-	require.Equal(t, "weishaw/sub2api", cfg.Update.DockerImage)
+	require.Equal(t, "X-manist/EntangledAPI", cfg.Update.Repository)
+	require.Equal(t, "ghcr.io/x-manist/sub2api", cfg.Update.DockerImage)
 	require.Empty(t, cfg.Update.GitHubToken)
 }
 

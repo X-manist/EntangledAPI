@@ -2,7 +2,9 @@
 #
 # Sub2API Installation Script
 # Sub2API 安装脚本
-# Usage: curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install.sh | bash
+# Public upstream example:
+#   curl -fsSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install.sh \
+#     | sudo bash -s -- --channel official
 #
 
 set -e
@@ -30,8 +32,15 @@ BLUE='\033[0;34m'
 CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
-# Configuration
-GITHUB_REPO="Wei-Shaw/sub2api"
+# Release source configuration. CLI flags override environment variables, which
+# override the channel defaults.
+OFFICIAL_GITHUB_REPO="Wei-Shaw/sub2api"
+CUSTOM_GITHUB_REPO="X-manist/EntangledAPI"
+RELEASE_CHANNEL="${SUB2API_RELEASE_CHANNEL:-custom}"
+REPOSITORY_OVERRIDE="${SUB2API_RELEASE_REPOSITORY:-}"
+GITHUB_REPO=""
+GITHUB_AUTH_TOKEN="${SUB2API_GITHUB_TOKEN:-${GITHUB_TOKEN:-${GITHUB_PAT:-${GH_TOKEN:-${UPDATE_GITHUB_TOKEN:-}}}}}"
+GITHUB_API_BASE_URL="https://api.github.com"
 INSTALL_DIR="/opt/sub2api"
 SERVICE_NAME="sub2api"
 SERVICE_USER="sub2api"
@@ -78,7 +87,7 @@ declare -A MSG_ZH=(
     ["verifying_checksum"]="正在校验文件..."
     ["checksum_verified"]="校验通过"
     ["checksum_failed"]="校验失败"
-    ["checksum_not_found"]="无法验证校验和（checksums.txt 未找到）"
+    ["checksum_not_found"]="Release 缺少必需的 checksums.txt，已拒绝安装"
     ["extracting"]="正在解压..."
     ["binary_installed"]="二进制文件已安装到"
     ["user_exists"]="用户已存在"
@@ -203,7 +212,7 @@ declare -A MSG_EN=(
     ["verifying_checksum"]="Verifying checksum..."
     ["checksum_verified"]="Checksum verified"
     ["checksum_failed"]="Checksum verification failed"
-    ["checksum_not_found"]="Could not verify checksum (checksums.txt not found)"
+    ["checksum_not_found"]="Release is missing the required checksums.txt; installation refused"
     ["extracting"]="Extracting..."
     ["binary_installed"]="Binary installed to"
     ["user_exists"]="User already exists"
@@ -417,6 +426,116 @@ configure_server() {
     echo ""
 }
 
+# Resolve the selected channel to a repository. An explicit repository always
+# wins, which also allows testing a fork without defining another channel.
+configure_release_source() {
+    case "$RELEASE_CHANNEL" in
+        custom)
+            GITHUB_REPO="$CUSTOM_GITHUB_REPO"
+            ;;
+        official)
+            GITHUB_REPO="$OFFICIAL_GITHUB_REPO"
+            ;;
+        *)
+            echo "Error: --channel must be custom or official (got: $RELEASE_CHANNEL)" >&2
+            return 1
+            ;;
+    esac
+
+    if [ -n "$REPOSITORY_OVERRIDE" ]; then
+        GITHUB_REPO="$REPOSITORY_OVERRIDE"
+    fi
+
+    if [[ ! "$GITHUB_REPO" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]]; then
+        echo "Error: repository must use owner/repository format (got: $GITHUB_REPO)" >&2
+        return 1
+    fi
+}
+
+github_api_get() {
+    local url="$1"
+    local curl_args=(
+        --fail
+        --silent
+        --show-error
+        --location
+        --connect-timeout 10
+        --max-time 30
+        -H "Accept: application/vnd.github+json"
+        -H "X-GitHub-Api-Version: 2022-11-28"
+        -H "User-Agent: Sub2API-Installer"
+    )
+    if [ -n "$GITHUB_AUTH_TOKEN" ]; then
+        curl_args+=(-H "Authorization: Bearer ${GITHUB_AUTH_TOKEN}")
+    fi
+    curl "${curl_args[@]}" "$url"
+}
+
+fetch_release_json() {
+    local version="${1:-latest}"
+    if [ "$version" = "latest" ]; then
+        github_api_get "${GITHUB_API_BASE_URL}/repos/${GITHUB_REPO}/releases/latest"
+    else
+        github_api_get "${GITHUB_API_BASE_URL}/repos/${GITHUB_REPO}/releases/tags/${version}"
+    fi
+}
+
+release_asset_api_url() {
+    local release_json="$1"
+    local asset_name="$2"
+    printf '%s' "$release_json" | jq -er --arg name "$asset_name" '
+        [.assets[]? | select(.name == $name) | .url][0] // error("release asset not found")
+    '
+}
+
+github_download_asset() {
+    local asset_url="$1"
+    local destination="$2"
+    local curl_args=(
+        --fail
+        --silent
+        --show-error
+        --location
+        --connect-timeout 10
+        --max-time 600
+        -H "Accept: application/octet-stream"
+        -H "X-GitHub-Api-Version: 2022-11-28"
+        -H "User-Agent: Sub2API-Installer"
+        -o "$destination"
+    )
+    if [ -n "$GITHUB_AUTH_TOKEN" ]; then
+        curl_args+=(-H "Authorization: Bearer ${GITHUB_AUTH_TOKEN}")
+    fi
+    curl "${curl_args[@]}" "$asset_url"
+}
+
+calculate_sha256() {
+    local file="$1"
+    if command -v sha256sum &> /dev/null; then
+        sha256sum "$file" | awk '{print $1}'
+    else
+        shasum -a 256 "$file" | awk '{print $1}'
+    fi
+}
+
+verify_release_checksum() {
+    local archive_path="$1"
+    local checksum_path="$2"
+    local archive_name="$3"
+    local expected_checksum
+    local actual_checksum
+
+    expected_checksum=$(awk -v name="$archive_name" '
+        $2 == name || $2 == "*" name { print $1; exit }
+    ' "$checksum_path")
+    if [[ ! "$expected_checksum" =~ ^[A-Fa-f0-9]{64}$ ]]; then
+        return 1
+    fi
+
+    actual_checksum=$(calculate_sha256 "$archive_path")
+    [ "${expected_checksum,,}" = "${actual_checksum,,}" ]
+}
+
 # Check if running as root
 check_root() {
     # Use 'id -u' instead of $EUID for better compatibility
@@ -473,6 +592,14 @@ check_dependencies() {
         missing+=("tar")
     fi
 
+    if ! command -v jq &> /dev/null; then
+        missing+=("jq")
+    fi
+
+    if ! command -v sha256sum &> /dev/null && ! command -v shasum &> /dev/null; then
+        missing+=("sha256sum/shasum")
+    fi
+
     if [ ${#missing[@]} -gt 0 ]; then
         print_error "$(msg 'missing_deps'): ${missing[*]}"
         print_info "$(msg 'install_deps_first')"
@@ -483,11 +610,17 @@ check_dependencies() {
 # Get latest release version
 get_latest_version() {
     print_info "$(msg 'fetching_version')"
-    LATEST_VERSION=$(curl -s --connect-timeout 10 --max-time 30 "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" 2>/dev/null | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+    local release_json
+    if ! release_json=$(fetch_release_json latest); then
+        print_error "$(msg 'failed_get_version')"
+        print_info "Repository: $GITHUB_REPO; check network access and GITHUB_TOKEN/GITHUB_PAT."
+        exit 1
+    fi
+    LATEST_VERSION=$(printf '%s' "$release_json" | jq -er '.tag_name | select(type == "string" and length > 0)' 2>/dev/null || true)
 
     if [ -z "$LATEST_VERSION" ]; then
         print_error "$(msg 'failed_get_version')"
-        print_info "Please check your network connection or try again later."
+        print_info "Repository: $GITHUB_REPO; the latest stable Release is missing or invalid."
         exit 1
     fi
 
@@ -499,11 +632,17 @@ list_versions() {
     print_info "$(msg 'fetching_versions')"
 
     local versions
-    versions=$(curl -s --connect-timeout 10 --max-time 30 "https://api.github.com/repos/${GITHUB_REPO}/releases" 2>/dev/null | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/' | head -20)
+    local releases_json
+    if ! releases_json=$(github_api_get "${GITHUB_API_BASE_URL}/repos/${GITHUB_REPO}/releases?per_page=20"); then
+        print_error "$(msg 'failed_get_version')"
+        print_info "Repository: $GITHUB_REPO; check network access and GITHUB_TOKEN/GITHUB_PAT."
+        exit 1
+    fi
+    versions=$(printf '%s' "$releases_json" | jq -r '.[0:20][]? | .tag_name // empty')
 
     if [ -z "$versions" ]; then
         print_error "$(msg 'failed_get_version')"
-        print_info "Please check your network connection or try again later."
+        print_info "Repository: $GITHUB_REPO; no published Releases were returned."
         exit 1
     fi
 
@@ -532,19 +671,14 @@ validate_version() {
         version="v$version"
     fi
 
-    print_info "$(msg 'validating_version') $version" >&2
-
-    # Check if the release exists
-    local http_code
-    http_code=$(curl -s -o /dev/null -w "%{http_code}" --connect-timeout 10 --max-time 30 "https://api.github.com/repos/${GITHUB_REPO}/releases/tags/${version}" 2>/dev/null)
-
-    # Check for network errors (empty or non-numeric response)
-    if [ -z "$http_code" ] || ! [[ "$http_code" =~ ^[0-9]+$ ]]; then
-        print_error "Network error: Failed to connect to GitHub API" >&2
+    if [[ ! "$version" =~ ^v[A-Za-z0-9][A-Za-z0-9._+-]*$ ]]; then
+        print_error "Invalid release version: $version" >&2
         exit 1
     fi
 
-    if [ "$http_code" != "200" ]; then
+    print_info "$(msg 'validating_version') $version" >&2
+
+    if ! fetch_release_json "$version" > /dev/null; then
         print_error "$(msg 'version_not_found'): $version" >&2
         echo "" >&2
         list_versions >&2
@@ -559,7 +693,7 @@ validate_version() {
 get_current_version() {
     if [ -f "$INSTALL_DIR/sub2api" ]; then
         # Use grep -E for better compatibility (works on macOS and Linux)
-        "$INSTALL_DIR/sub2api" --version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "unknown"
+        "$INSTALL_DIR/sub2api" --version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?' | head -1 || echo "unknown"
     else
         echo "not_installed"
     fi
@@ -569,37 +703,49 @@ get_current_version() {
 download_and_extract() {
     local version_num=${LATEST_VERSION#v}
     local archive_name="sub2api_${version_num}_${OS}_${ARCH}.tar.gz"
-    local download_url="https://github.com/${GITHUB_REPO}/releases/download/${LATEST_VERSION}/${archive_name}"
-    local checksum_url="https://github.com/${GITHUB_REPO}/releases/download/${LATEST_VERSION}/checksums.txt"
+    local release_json
+    local download_url
+    local checksum_url
+
+    if ! release_json=$(fetch_release_json "$LATEST_VERSION"); then
+        print_error "$(msg 'version_not_found'): $LATEST_VERSION"
+        exit 1
+    fi
+    download_url=$(release_asset_api_url "$release_json" "$archive_name" 2>/dev/null || true)
+    checksum_url=$(release_asset_api_url "$release_json" "checksums.txt" 2>/dev/null || true)
+    if [ -z "$download_url" ]; then
+        print_error "$(msg 'download_failed'): Release asset not found: $archive_name"
+        exit 1
+    fi
+    if [ -z "$checksum_url" ]; then
+        print_error "$(msg 'checksum_not_found')"
+        exit 1
+    fi
 
     print_info "$(msg 'downloading') ${archive_name}..."
 
     # Create temp directory
     TEMP_DIR=$(mktemp -d)
-    trap "rm -rf $TEMP_DIR" EXIT
+    trap 'rm -rf "$TEMP_DIR"' EXIT
 
     # Download archive
-    if ! curl -sL "$download_url" -o "$TEMP_DIR/$archive_name"; then
+    if ! github_download_asset "$download_url" "$TEMP_DIR/$archive_name"; then
         print_error "$(msg 'download_failed')"
         exit 1
     fi
 
-    # Download and verify checksum
+    # Download and verify checksum. Updates fail closed when checksums are absent
+    # or malformed so a partially published Release can never be installed.
     print_info "$(msg 'verifying_checksum')"
-    if curl -sL "$checksum_url" -o "$TEMP_DIR/checksums.txt" 2>/dev/null; then
-        local expected_checksum=$(grep "$archive_name" "$TEMP_DIR/checksums.txt" | awk '{print $1}')
-        local actual_checksum=$(sha256sum "$TEMP_DIR/$archive_name" | awk '{print $1}')
-
-        if [ "$expected_checksum" != "$actual_checksum" ]; then
-            print_error "$(msg 'checksum_failed')"
-            print_error "Expected: $expected_checksum"
-            print_error "Actual: $actual_checksum"
-            exit 1
-        fi
-        print_success "$(msg 'checksum_verified')"
-    else
-        print_warning "$(msg 'checksum_not_found')"
+    if ! github_download_asset "$checksum_url" "$TEMP_DIR/checksums.txt"; then
+        print_error "$(msg 'checksum_not_found')"
+        exit 1
     fi
+    if ! verify_release_checksum "$TEMP_DIR/$archive_name" "$TEMP_DIR/checksums.txt" "$archive_name"; then
+        print_error "$(msg 'checksum_failed')"
+        exit 1
+    fi
+    print_success "$(msg 'checksum_verified')"
 
     # Extract
     print_info "$(msg 'extracting')"
@@ -670,7 +816,7 @@ install_service() {
     cat > /etc/systemd/system/sub2api.service << EOF
 [Unit]
 Description=Sub2API - AI API Gateway Platform
-Documentation=https://github.com/Wei-Shaw/sub2api
+Documentation=https://github.com/${GITHUB_REPO}
 After=network.target postgresql.service redis.service
 Wants=postgresql.service redis.service
 
@@ -815,7 +961,7 @@ upgrade() {
     print_info "$(msg 'upgrading')"
 
     # Get current version
-    CURRENT_VERSION=$("$INSTALL_DIR/sub2api" --version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' || echo "unknown")
+    CURRENT_VERSION=$("$INSTALL_DIR/sub2api" --version 2>/dev/null | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?' | head -1 || echo "unknown")
     print_info "$(msg 'current_version'): $CURRENT_VERSION"
 
     # Stop service
@@ -996,6 +1142,40 @@ main() {
                 PURGE="true"
                 shift
                 ;;
+            --channel)
+                if [ -n "${2:-}" ] && [[ ! "$2" =~ ^- ]]; then
+                    RELEASE_CHANNEL="$2"
+                    shift 2
+                else
+                    echo "Error: --channel requires custom or official" >&2
+                    exit 1
+                fi
+                ;;
+            --channel=*)
+                RELEASE_CHANNEL="${1#*=}"
+                if [ -z "$RELEASE_CHANNEL" ]; then
+                    echo "Error: --channel requires custom or official" >&2
+                    exit 1
+                fi
+                shift
+                ;;
+            --repository|--repo)
+                if [ -n "${2:-}" ] && [[ ! "$2" =~ ^- ]]; then
+                    REPOSITORY_OVERRIDE="$2"
+                    shift 2
+                else
+                    echo "Error: --repository requires owner/repository" >&2
+                    exit 1
+                fi
+                ;;
+            --repository=*|--repo=*)
+                REPOSITORY_OVERRIDE="${1#*=}"
+                if [ -z "$REPOSITORY_OVERRIDE" ]; then
+                    echo "Error: --repository requires owner/repository" >&2
+                    exit 1
+                fi
+                shift
+                ;;
             -v|--version)
                 if [ -n "${2:-}" ] && [[ ! "$2" =~ ^- ]]; then
                     target_version="$2"
@@ -1023,6 +1203,10 @@ main() {
     # Restore positional arguments
     set -- "${positional_args[@]}"
 
+    if ! configure_release_source; then
+        exit 1
+    fi
+
     # Select language first
     select_language
 
@@ -1030,6 +1214,8 @@ main() {
     echo "=============================================="
     echo "       $(msg 'install_title')"
     echo "=============================================="
+    echo ""
+    print_info "Release source: ${RELEASE_CHANNEL} (${GITHUB_REPO})"
     echo ""
 
     # Parse commands
@@ -1108,6 +1294,7 @@ main() {
             exit 0
             ;;
         list-versions|versions)
+            check_dependencies
             list_versions
             exit 0
             ;;
@@ -1129,15 +1316,22 @@ main() {
             echo ""
             echo "Options:"
             echo "  -v, --version <ver>  $(msg 'opt_version')"
+            echo "  --channel <name>     Release channel: custom (default) or official"
+            echo "  --repository, --repo <repo>  Override repository (owner/repository)"
             echo "  -y, --yes            Skip confirmation prompts (for uninstall)"
             echo ""
+            echo "Environment:"
+            echo "  SUB2API_RELEASE_CHANNEL       Default channel when --channel is omitted"
+            echo "  SUB2API_RELEASE_REPOSITORY    Repository override when --repository is omitted"
+            echo "  GITHUB_TOKEN / GITHUB_PAT     Read token for private GitHub Releases"
+            echo ""
             echo "Examples:"
-            echo "  $0                        # Install latest version"
-            echo "  $0 install -v v0.1.0      # Install specific version"
-            echo "  $0 upgrade                # Upgrade to latest"
-            echo "  $0 upgrade -v v0.2.0      # Upgrade to specific version"
-            echo "  $0 rollback v0.1.0        # Rollback to v0.1.0"
-            echo "  $0 list-versions          # List available versions"
+            echo "  $0 install --channel custom"
+            echo "  $0 install --channel official"
+            echo "  $0 install --repository owner/repository -v v0.1.0"
+            echo "  $0 upgrade --channel custom"
+            echo "  $0 rollback v0.1.0 --channel official"
+            echo "  $0 list-versions --repository owner/repository"
             echo ""
             exit 0
             ;;
@@ -1181,4 +1375,6 @@ main() {
     fi
 }
 
-main "$@"
+if [ "${SUB2API_INSTALL_LIBRARY_ONLY:-false}" != "true" ]; then
+    main "$@"
+fi

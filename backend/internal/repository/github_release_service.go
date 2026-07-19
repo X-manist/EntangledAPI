@@ -21,6 +21,8 @@ type githubReleaseClient struct {
 	githubToken        string
 }
 
+const maxChecksumFileSize int64 = 4 * 1024 * 1024
+
 type githubReleaseClientError struct {
 	err error
 }
@@ -210,8 +212,18 @@ func (c *githubReleaseClient) FetchChecksumFile(ctx context.Context, url string)
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
+	if resp.ContentLength > maxChecksumFileSize {
+		return nil, fmt.Errorf("checksum file too large: %d bytes (max %d)", resp.ContentLength, maxChecksumFileSize)
+	}
 
-	return io.ReadAll(resp.Body)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxChecksumFileSize+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxChecksumFileSize {
+		return nil, fmt.Errorf("checksum file exceeded maximum size of %d bytes", maxChecksumFileSize)
+	}
+	return data, nil
 }
 
 func (c *githubReleaseClient) applyGitHubHeaders(req *http.Request) {

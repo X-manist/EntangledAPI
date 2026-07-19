@@ -32,13 +32,7 @@ Docker 使用新版本，且容器重建后仍保留
 
 ## 2. 当前分支状态
 
-当前本地分支已经整理为：
-
-```text
-custom/main
-  └─ fix: route OAuth Codex image bridge through HTTP
-      └─ upstream/main
-```
+`custom/main` 是唯一生产主分支；具体提交数会随上游同步变化，应以 `git log upstream/main..custom/main` 为准，不在文档中固定某个 HEAD。
 
 rebase 前的旧提交保存在本地备份分支：
 
@@ -58,16 +52,17 @@ git push -u origin custom/main
 1. 在 `Settings → General` 确认仓库 Visibility；需要私有发布时必须显示为 `Private`。
 2. 将默认分支改为 `custom/main`。
 3. 为 `custom/main` 开启分支保护和 Pull Request 合并要求。
-4. 在 Actions 设置中允许 Workflow 获得 `Read and write permissions`，用于创建 Release tag 和同步 VERSION 文件。
+4. 在 Actions 设置中允许 Workflow 获得 `Read and write permissions`，用于创建 Release tag 和 Release。
 5. 确认 Actions 可以创建和上传私有 Release 资产。
 
 确认运行稳定后，再决定是否归档旧的 `origin/main`；不要在确认前删除旧分支。
 
 ## 3. GreenVPS 更新配置
 
-GreenVPS 的 `.env` 需要加入：
+GreenVPS 的 `.env` 应显式保留以下值。当前下游代码和 Compose 模板也以此为默认值，因此管理页面不会默认跟随官方 Release：
 
 ```dotenv
+SUB2API_IMAGE=ghcr.io/x-manist/sub2api:latest
 UPDATE_REPOSITORY=X-manist/EntangledAPI
 UPDATE_GITHUB_TOKEN=github_pat_xxxxxxxxxxxxxxxxxxxx
 UPDATE_DOCKER_IMAGE=ghcr.io/x-manist/sub2api
@@ -75,6 +70,21 @@ UPDATE_DOCKER_IMAGE=ghcr.io/x-manist/sub2api
 SUB2API_RUNTIME_SEED_POLICY=if-missing
 SUB2API_RUNTIME_DIR=/app/data/runtime
 ```
+
+需要临时切回官方通道时，必须成组修改并重建应用容器：
+
+```dotenv
+SUB2API_IMAGE=weishaw/sub2api:latest
+UPDATE_REPOSITORY=Wei-Shaw/sub2api
+UPDATE_GITHUB_TOKEN=
+UPDATE_DOCKER_IMAGE=weishaw/sub2api
+```
+
+```bash
+docker compose up -d
+```
+
+不要只改 `UPDATE_REPOSITORY`；运行镜像、页面更新源和手工回退镜像必须属于同一通道。
 
 `UPDATE_GITHUB_TOKEN` 建议使用 GitHub Fine-grained PAT：
 
@@ -90,6 +100,47 @@ Token 只放在服务器 `.env` 中：
 - 不放入前端环境变量。
 - 不写入 `config.example.yaml` 的真实值。
 - 泄露后立即吊销并重新生成。
+
+私有 GHCR package 还需要单独登录。该令牌只需 package 读取权限：
+
+```bash
+echo "$GHCR_TOKEN" | docker login ghcr.io -u X-manist --password-stdin
+```
+
+### 3.1 安装脚本选择通道
+
+安装脚本默认使用自有通道，也可以显式选择官方通道或覆盖任意仓库。脚本依赖 Bash 4+、`curl`、`jq`、`tar`，以及 `sha256sum` 或 `shasum`。
+
+官方公开仓库：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install.sh \
+  | sudo bash -s -- install --channel official
+```
+
+自有仓库公开时，同样可以用 raw URL 一行安装：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/X-manist/EntangledAPI/custom/main/deploy/install.sh \
+  | sudo bash -s -- install \
+      --channel custom \
+      --repository X-manist/EntangledAPI
+```
+
+只有仓库为 Private 时才需要下面的 PAT 备选方案。私有仓库不能匿名读取 raw URL，应通过 Contents API 获取脚本，并把只读令牌传给安装进程：
+
+```bash
+export GITHUB_TOKEN=github_pat_xxxxxxxxxxxxxxxxxxxx
+curl -fsSL \
+  -H "Accept: application/vnd.github.raw+json" \
+  -H "Authorization: Bearer $GITHUB_TOKEN" \
+  "https://api.github.com/repos/X-manist/EntangledAPI/contents/deploy/install.sh?ref=custom/main" \
+  | sudo env GITHUB_TOKEN="$GITHUB_TOKEN" bash -s -- install \
+      --channel custom \
+      --repository X-manist/EntangledAPI
+```
+
+安装指定 Release 时追加 `--version v0.1.153-entangled.2`。令牌也可以通过 `GITHUB_PAT`、`GH_TOKEN`、`SUB2API_GITHUB_TOKEN` 或 `UPDATE_GITHUB_TOKEN` 提供；命令行的 `--channel`/`--repository` 优先于环境变量。
 
 ## 4. Docker 持久化更新机制
 
@@ -114,7 +165,7 @@ Token 只放在服务器 `.env` 中：
 | `always` | 故障恢复。每次启动都用镜像覆盖持久化版本。只能临时使用。 |
 | `never` | 禁用持久化自更新，直接运行镜像内二进制。 |
 
-首次启用该机制仍需要部署一次新镜像。完成这次 bootstrap 后，后续正常版本不需要手工重新部署。
+首次启用该机制仍需要部署一次 `ghcr.io/x-manist/sub2api` 自有镜像。完成这次 bootstrap 后，后续正常版本不需要手工重新部署。
 
 ## 5. 日常功能开发
 
@@ -206,12 +257,15 @@ git push -u origin sync/upstream-YYYYMMDD
    - 后端单元测试。
    - 前端构建。
    - Docker 持久化入口测试。
+   - 安装脚本通道、PAT、资产和 checksum 测试，以及 Release 队列/最高 tag/static 配置检查。
    - 自动生成下一版本 tag，例如 `v0.1.151-entangled.2`。
 2. `.github/workflows/release.yml`
    - 构建 Release 二进制。
    - 上传 Linux archive 和 `checksums.txt`。
    - 发布为稳定 Release，使 `/releases/latest` 能找到它。
    - 同时构建私有 GHCR 镜像。
+
+Release 只通过显式 workflow dispatch 启动，不再同时监听 tag push。若创建 tag 后 dispatch 失败，直接 rerun `Custom Release on Merge`；工作流会复用当前提交上的 tag 并重新 dispatch。所有 `Release` 任务全局串行执行，合并工作流会等待 Release 真正完成后才结束，避免不同版本并发覆盖共享的 `latest` 镜像；已完整发布的稳定 Release 会直接跳过重复构建。
 
 版本规则：
 
@@ -268,7 +322,7 @@ sub2api_<version>_linux_amd64.tar.gz
 checksums.txt
 ```
 
-不要开启会跳过二进制资产的自定义发布配置。本仓库的 simple release 已保留 Linux amd64 archive 和 checksum。
+自动合并发布始终使用完整跨平台配置。本仓库的手工 simple release 只保留 Linux amd64 archive、checksum 和带版本号的 GHCR 镜像；它不会更新 GitHub `/releases/latest`，也不会覆盖 GHCR `:latest`。安装脚本采用 fail-closed 策略：缺少 `checksums.txt` 或对应条目时拒绝替换二进制。
 
 ### 新版本无法启动
 
@@ -287,6 +341,8 @@ checksums.txt
 - [ ] 后端单元测试通过。
 - [ ] 前端构建通过。
 - [ ] `deploy/docker-entrypoint_test.sh` 通过。
+- [ ] `deploy/tests/install-script-test.sh` 通过。
+- [ ] `deploy/tests/release-pipeline-test.sh` 通过。
 - [ ] Release 不是 Draft 或 prerelease。
 - [ ] Linux amd64 archive 和 `checksums.txt` 已上传。
 - [ ] GreenVPS 的 Token 只有私有仓库只读权限。

@@ -12,7 +12,7 @@
 
 services:
   sub2api:
-    image: weishaw/sub2api:latest
+    image: ${SUB2API_IMAGE:-ghcr.io/x-manist/sub2api:latest}
     container_name: sub2api
     restart: unless-stopped
     ulimits:
@@ -104,9 +104,9 @@ services:
       # =======================================================================
       # Update Configuration (online update / private fork)
       # =======================================================================
-      - UPDATE_REPOSITORY=${UPDATE_REPOSITORY:-Wei-Shaw/sub2api}
+      - UPDATE_REPOSITORY=${UPDATE_REPOSITORY:-X-manist/EntangledAPI}
       - UPDATE_GITHUB_TOKEN=${UPDATE_GITHUB_TOKEN:-}
-      - UPDATE_DOCKER_IMAGE=${UPDATE_DOCKER_IMAGE:-weishaw/sub2api}
+      - UPDATE_DOCKER_IMAGE=${UPDATE_DOCKER_IMAGE:-ghcr.io/x-manist/sub2api}
       - UPDATE_PROXY_URL=${UPDATE_PROXY_URL:-}
       - SUB2API_RUNTIME_SEED_POLICY=${SUB2API_RUNTIME_SEED_POLICY:-if-missing}
       - SUB2API_RUNTIME_DIR=${SUB2API_RUNTIME_DIR:-/app/data/runtime}

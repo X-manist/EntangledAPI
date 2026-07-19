@@ -153,7 +153,8 @@ type GeminiTierQuotaConfig struct {
 
 type UpdateConfig struct {
 	// Repository is the GitHub repository used for update checks and release assets.
-	// Keep the default for upstream builds; private forks should set owner/repository.
+	// This downstream defaults to X-manist/EntangledAPI; deployments can explicitly
+	// override it when they intentionally use another release channel.
 	Repository string `mapstructure:"repository"`
 	// GitHubToken is an optional read-only token used for private repositories.
 	// It is server-side only and must never be exposed through settings APIs.
@@ -1902,11 +1903,11 @@ func setDefaults() {
 	viper.SetDefault("pricing.update_interval_hours", 24)
 	viper.SetDefault("pricing.hash_check_interval_minutes", 10)
 
-	// Update source. Private forks override these with UPDATE_REPOSITORY,
-	// UPDATE_GITHUB_TOKEN, and UPDATE_DOCKER_IMAGE.
-	viper.SetDefault("update.repository", "Wei-Shaw/sub2api")
+	// Update source. This downstream must follow its own tested Release channel,
+	// never the upstream project's latest release by default.
+	viper.SetDefault("update.repository", "X-manist/EntangledAPI")
 	viper.SetDefault("update.github_token", "")
-	viper.SetDefault("update.docker_image", "weishaw/sub2api")
+	viper.SetDefault("update.docker_image", "ghcr.io/x-manist/sub2api")
 	viper.SetDefault("update.proxy_url", "")
 
 	// Timezone (default to Asia/Shanghai for Chinese users)

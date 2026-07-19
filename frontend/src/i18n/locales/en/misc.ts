@@ -53,9 +53,10 @@ export default {
     noRollbackVersions: 'No versions available for rollback',
     loadVersionsFailed: 'Failed to load versions',
     rollbackSourceHint: 'Online rollback is not available for source builds',
-    deployScript: 'Script',
+    deployScriptPublic: 'Public script',
+    deployScriptPrivate: 'Private script',
     deployDocker: 'Docker',
-    dockerEditCompose: 'Edit the image tag in docker-compose.yml',
+    dockerEditCompose: 'Update the release channel values in .env',
     dockerRecreate: 'Recreate the container'
   },
 

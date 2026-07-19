@@ -14,28 +14,42 @@ permissions:
 
 concurrency:
   group: custom-release-${{ github.ref }}
-  cancel-in-progress: false
+  queue: max
 
 jobs:
   test-and-tag:
     runs-on: ubuntu-latest
     steps:
+      - name: Require the production branch
+        env:
+          CUSTOM_RELEASE_BRANCH: custom/main
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/$CUSTOM_RELEASE_BRANCH" ]; then
+            echo "Custom releases must run from $CUSTOM_RELEASE_BRANCH (got: $GITHUB_REF)" >&2
+            exit 1
+          fi
+
       - name: Checkout full history
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - name: Skip commits that already have a custom release tag
+      - name: Find an existing custom release tag
         id: released
         run: |
-          if git tag --points-at HEAD | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+-entangled\.[0-9]+$'; then
-            echo "skip=true" >> "$GITHUB_OUTPUT"
+          tag=$(git tag --points-at HEAD \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-entangled\.[0-9]+$' \
+            | sort -V \
+            | tail -1 || true)
+          if [ -n "$tag" ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "tag=$tag" >> "$GITHUB_OUTPUT"
+            echo "Reusing $tag so a failed Release dispatch can be retried."
           else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Setup Go
-        if: steps.released.outputs.skip != 'true'
         uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
@@ -43,22 +57,23 @@ jobs:
           cache-dependency-path: backend/go.sum
 
       - name: Run backend tests
-        if: steps.released.outputs.skip != 'true'
         working-directory: backend
         run: go test -tags=unit ./internal/config ./internal/repository ./internal/service
 
       - name: Test persistent Docker runtime entrypoint
-        if: steps.released.outputs.skip != 'true'
         run: sh deploy/docker-entrypoint_test.sh
 
+      - name: Test release installer
+        run: |
+          bash deploy/tests/install-script-test.sh
+          bash deploy/tests/release-pipeline-test.sh
+
       - name: Setup pnpm
-        if: steps.released.outputs.skip != 'true'
         uses: pnpm/action-setup@v6
         with:
           version: 9
 
       - name: Setup Node.js
-        if: steps.released.outputs.skip != 'true'
         uses: actions/setup-node@v6
         with:
           node-version: '20'
@@ -66,7 +81,6 @@ jobs:
           cache-dependency-path: frontend/pnpm-lock.yaml
 
       - name: Build frontend
-        if: steps.released.outputs.skip != 'true'
         working-directory: frontend
         run: |
           pnpm install --frozen-lockfile
@@ -74,7 +88,7 @@ jobs:
 
       - name: Create next custom release tag
         id: custom_tag
-        if: steps.released.outputs.skip != 'true'
+        if: steps.released.outputs.exists != 'true'
         run: |
           raw_version=$(tr -d '\r\n' < backend/cmd/server/VERSION)
           base_version=$(printf '%s' "$raw_version" | sed -E 's/^v?([0-9]+\.[0-9]+\.[0-9]+).*/\1/')
@@ -108,11 +122,16 @@ jobs:
           echo "Created $tag; the Release workflow will publish binaries and checksums."
 
       - name: Dispatch Release workflow
-        if: steps.released.outputs.skip != 'true'
+        id: dispatch
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ steps.custom_tag.outputs.tag }}
+          RELEASE_TAG: ${{ steps.released.outputs.tag || steps.custom_tag.outputs.tag }}
         run: |
+          # Record the lower bound before dispatch. A fast workflow run can be
+          # created before the REST request returns.
+          dispatched_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          echo "dispatched_at=$dispatched_at" >> "$GITHUB_OUTPUT"
+
           payload=$(jq -nc --arg ref "$RELEASE_TAG" --arg tag "$RELEASE_TAG" '{ref:$ref,inputs:{tag:$tag,simple_release:"false"}}')
           status=$(curl -sS -o /tmp/release-dispatch-response.json -w '%{http_code}' \
             -X POST \
@@ -126,3 +145,63 @@ jobs:
             echo "Release workflow dispatch failed with HTTP $status" >&2
             exit 1
           fi
+
+      - name: Wait for Release publication
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.released.outputs.tag || steps.custom_tag.outputs.tag }}
+          DISPATCHED_AT: ${{ steps.dispatch.outputs.dispatched_at }}
+        run: |
+          run_id=""
+          for attempt in $(seq 1 60); do
+            if ! runs=$(curl -fsSL \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/release.yml/runs?event=workflow_dispatch&head_sha=$GITHUB_SHA&per_page=50"); then
+              sleep 5
+              continue
+            fi
+            run_id=$(printf '%s' "$runs" | jq -r \
+              --arg sha "$GITHUB_SHA" \
+              --arg title "Release $RELEASE_TAG" \
+              --arg since "$DISPATCHED_AT" \
+              '[.workflow_runs[] | select(
+                .head_sha == $sha and
+                .display_title == $title and
+                .created_at >= $since
+              )] | max_by(.created_at) | .id // empty')
+            if [ -n "$run_id" ]; then
+              break
+            fi
+            sleep 5
+          done
+          if [ -z "$run_id" ]; then
+            echo "Timed out locating the dispatched Release workflow for $RELEASE_TAG" >&2
+            exit 1
+          fi
+
+          echo "Waiting for Release workflow run $run_id ($RELEASE_TAG)"
+          for attempt in $(seq 1 720); do
+            if ! run=$(curl -fsSL \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$run_id"); then
+              sleep 30
+              continue
+            fi
+            status=$(printf '%s' "$run" | jq -r '.status')
+            if [ "$status" = "completed" ]; then
+              conclusion=$(printf '%s' "$run" | jq -r '.conclusion')
+              if [ "$conclusion" != "success" ]; then
+                echo "Release workflow $run_id finished with: $conclusion" >&2
+                exit 1
+              fi
+              echo "Release $RELEASE_TAG published successfully."
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "Timed out waiting for Release workflow $run_id" >&2
+          exit 1

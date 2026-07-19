@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -163,6 +164,34 @@ func (s *GitHubReleaseServiceSuite) TestFetchChecksumFile_Non200() {
 
 	_, err := s.client.FetchChecksumFile(context.Background(), s.srv.URL)
 	require.Error(s.T(), err, "expected error for non-200")
+}
+
+func (s *GitHubReleaseServiceSuite) TestFetchChecksumFile_RejectsLargeContentLength() {
+	s.srv = newLocalTestServer(s.T(), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", strconv.FormatInt(maxChecksumFileSize+1, 10))
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	s.client = newTestGitHubReleaseClient()
+
+	_, err := s.client.FetchChecksumFile(context.Background(), s.srv.URL)
+	require.ErrorContains(s.T(), err, "checksum file too large")
+}
+
+func (s *GitHubReleaseServiceSuite) TestFetchChecksumFile_RejectsOversizedStream() {
+	payload := bytes.Repeat([]byte("x"), int(maxChecksumFileSize+1))
+	s.srv = newLocalTestServer(s.T(), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush() // Force chunked transfer so Content-Length is unknown.
+		}
+		_, _ = w.Write(payload)
+	}))
+
+	s.client = newTestGitHubReleaseClient()
+
+	_, err := s.client.FetchChecksumFile(context.Background(), s.srv.URL)
+	require.ErrorContains(s.T(), err, "checksum file exceeded maximum size")
 }
 
 func (s *GitHubReleaseServiceSuite) TestDownloadFile_ContextCancel() {

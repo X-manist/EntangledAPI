@@ -1,9 +1,7 @@
 name: Release
+run-name: Release ${{ inputs.tag }}
 
 on:
-  push:
-    tags:
-      - 'v*-entangled.*'
   workflow_dispatch:
     inputs:
       tag:
@@ -11,24 +9,136 @@ on:
         required: true
         type: string
       simple_release:
-        description: 'Simple release: only x86_64 GHCR image, skip other artifacts'
+        description: 'Simple release: versioned x86_64 artifacts only; does not advance latest'
         required: false
         type: boolean
         default: false
 
-# 环境变量：合并 workflow_dispatch 输入和 repository variable
-# tag push 触发时读取 vars.SIMPLE_RELEASE，workflow_dispatch 时使用输入参数
 env:
-  SIMPLE_RELEASE: ${{ github.event.inputs.simple_release == 'true' || vars.SIMPLE_RELEASE == 'true' }}
+  RELEASE_TAG: ${{ inputs.tag }}
+  # Automatic dispatches pass false. Manual simple releases remain available,
+  # but the simple GoReleaser config never advances the global latest pointer.
+  SIMPLE_RELEASE: ${{ inputs.simple_release }}
   CUSTOM_RELEASE_BRANCH: ${{ vars.CUSTOM_RELEASE_BRANCH || 'custom/main' }}
 
 permissions:
   contents: write
   packages: write
 
+concurrency:
+  # Every release writes the shared GHCR :latest tag and GitHub's latest
+  # Release pointer, so different versions must not publish concurrently.
+  group: release-publish
+  queue: max
+
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      published: ${{ steps.release_state.outputs.published }}
+    steps:
+      - name: Checkout immutable release tag
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ env.RELEASE_TAG }}
+
+      - name: Validate tag and production ancestry
+        run: |
+          if ! [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-entangled\.[0-9]+$ ]]; then
+            echo "Custom releases must use v<upstream>-entangled.<revision>" >&2
+            exit 1
+          fi
+
+          git fetch origin "+refs/heads/$CUSTOM_RELEASE_BRANCH:refs/remotes/origin/$CUSTOM_RELEASE_BRANCH"
+          git fetch origin --tags --force
+          tag_commit=$(git rev-list -n 1 "$RELEASE_TAG")
+          if ! git merge-base --is-ancestor "$tag_commit" "origin/$CUSTOM_RELEASE_BRANCH"; then
+            echo "$RELEASE_TAG is not contained in $CUSTOM_RELEASE_BRANCH" >&2
+            exit 1
+          fi
+
+          # A manually dispatched historical tag must never publish after a
+          # newer production tag and move GHCR/GitHub latest backwards.
+          latest_production_tag=$(git tag --merged "origin/$CUSTOM_RELEASE_BRANCH" \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-entangled\.[0-9]+$' \
+            | sort -V \
+            | tail -1 || true)
+          if [ -z "$latest_production_tag" ] || [ "$RELEASE_TAG" != "$latest_production_tag" ]; then
+            echo "$RELEASE_TAG is not the newest production tag (newest: ${latest_production_tag:-none})" >&2
+            exit 1
+          fi
+
+      - name: Skip an already published stable Release
+        id: release_state
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          status=$(curl -sS -o /tmp/existing-release.json -w '%{http_code}' \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG")
+          case "$status" in
+            200)
+              if [ "$(jq -r '.draft or .prerelease' /tmp/existing-release.json)" = "true" ]; then
+                echo "Existing Release is draft/prerelease; fix or remove it before retrying." >&2
+                exit 1
+              fi
+              release_version=${RELEASE_TAG#v}
+              archive_name="sub2api_${release_version}_linux_amd64.tar.gz"
+              if ! jq -e --arg archive "$archive_name" '
+                any(.assets[]?; .name == "checksums.txt" and ((.size // 0) > 0)) and
+                any(.assets[]?; .name == $archive and ((.size // 0) > 0))
+              ' /tmp/existing-release.json > /dev/null; then
+                echo "Existing Release is incomplete; remove it and rerun this workflow." >&2
+                exit 1
+              fi
+
+              if ! checksum_url=$(jq -er '
+                [.assets[]? | select(.name == "checksums.txt") | .url][0] // error("checksums asset URL missing")
+              ' /tmp/existing-release.json); then
+                echo "Existing Release has no downloadable checksums asset." >&2
+                exit 1
+              fi
+              if ! curl -fsSL \
+                --max-filesize 4194304 \
+                -H "Authorization: Bearer $GH_TOKEN" \
+                -H 'Accept: application/octet-stream' \
+                -H 'X-GitHub-Api-Version: 2022-11-28' \
+                "$checksum_url" \
+                -o /tmp/existing-checksums.txt; then
+                echo "Failed to download checksums.txt from the existing Release." >&2
+                exit 1
+              fi
+              if [ "$(wc -c < /tmp/existing-checksums.txt)" -gt 4194304 ]; then
+                echo "Existing checksums.txt exceeds the 4 MiB safety limit." >&2
+                exit 1
+              fi
+              expected_checksum=$(awk -v name="$archive_name" '
+                $2 == name || $2 == "*" name { print $1; exit }
+              ' /tmp/existing-checksums.txt)
+              if ! [[ "$expected_checksum" =~ ^[A-Fa-f0-9]{64}$ ]]; then
+                echo "Existing checksums.txt has no valid SHA-256 entry for $archive_name." >&2
+                exit 1
+              fi
+              echo "published=true" >> "$GITHUB_OUTPUT"
+              echo "$RELEASE_TAG is already published; duplicate build skipped."
+              ;;
+            404)
+              echo "published=false" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              cat /tmp/existing-release.json >&2
+              echo "Failed to inspect existing Release (HTTP $status)" >&2
+              exit 1
+              ;;
+          esac
+
   # Update VERSION file with tag version
   update-version:
+    needs: [prepare]
+    if: needs.prepare.outputs.published != 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -37,20 +147,11 @@ jobs:
           # A dispatch is initiated after creating a custom tag. Build every
           # artifact from that immutable tag rather than the moving default
           # branch, otherwise a later push can leak into this Release.
-          ref: ${{ github.event.inputs.tag || github.ref }}
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Update VERSION file
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG_NAME=${{ github.event.inputs.tag }}
-          else
-            TAG_NAME=${GITHUB_REF#refs/tags/}
-          fi
-          case "$TAG_NAME" in
-            v*-entangled.*) ;;
-            *) echo "Custom releases must use v<upstream>-entangled.<revision>" >&2; exit 1 ;;
-          esac
-          VERSION=${TAG_NAME#v}
+          VERSION=${RELEASE_TAG#v}
           echo "$VERSION" > backend/cmd/server/VERSION
           echo "Updated VERSION file to: $VERSION"
 
@@ -62,13 +163,15 @@ jobs:
           retention-days: 1
 
   build-frontend:
+    needs: [prepare]
+    if: needs.prepare.outputs.published != 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
           # Keep the frontend artifact aligned with the binary source tag.
-          ref: ${{ github.event.inputs.tag || github.ref }}
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
@@ -98,14 +201,15 @@ jobs:
           retention-days: 1
 
   release:
-    needs: [update-version, build-frontend]
+    needs: [prepare, update-version, build-frontend]
+    if: needs.prepare.outputs.published != 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
-          ref: ${{ github.event.inputs.tag || github.ref }}
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Download VERSION artifact
         uses: actions/download-artifact@v8
@@ -161,15 +265,10 @@ jobs:
       - name: Get tag message
         id: tag_message
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG_NAME=${{ github.event.inputs.tag }}
-          else
-            TAG_NAME=${GITHUB_REF#refs/tags/}
-          fi
-          echo "Processing tag: $TAG_NAME"
+          echo "Processing tag: $RELEASE_TAG"
 
           # 获取完整的 tag message（跳过第一行标题）
-          TAG_MESSAGE=$(git tag -l --format='%(contents:body)' "$TAG_NAME")
+          TAG_MESSAGE=$(git tag -l --format='%(contents:body)' "$RELEASE_TAG")
 
           # 调试输出
           echo "Tag message length: ${#TAG_MESSAGE}"
@@ -218,6 +317,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          RELEASE_NOTES: ${{ steps.tag_message.outputs.message }}
         continue-on-error: true
         run: |
           # 检查必要的环境变量
@@ -226,17 +326,13 @@ jobs:
             exit 0
           fi
 
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG_NAME=${{ github.event.inputs.tag }}
-          else
-            TAG_NAME=${GITHUB_REF#refs/tags/}
-          fi
-          VERSION=${TAG_NAME#v}
+          TAG_NAME="$RELEASE_TAG"
+          VERSION=${RELEASE_TAG#v}
           REPO="${{ github.repository }}"
           GHCR_IMAGE="ghcr.io/${REPO,,}"  # ${,,} converts to lowercase
 
           # 获取 tag message 内容并转义 Markdown 特殊字符
-          TAG_MESSAGE='${{ steps.tag_message.outputs.message }}'
+          TAG_MESSAGE="$RELEASE_NOTES"
           TAG_MESSAGE=$(echo "$TAG_MESSAGE" | sed 's/\([_*`\[]\)/\\\1/g')
 
           # 限制消息长度（Telegram 消息限制 4096 字符，预留空间给头尾固定内容）
@@ -284,36 +380,3 @@ jobs:
                 parse_mode: "Markdown",
                 disable_web_page_preview: true
               }')"
-
-  sync-version-file:
-    needs: [release]
-    if: ${{ needs.release.result == 'success' }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout default branch
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ env.CUSTOM_RELEASE_BRANCH }}
-
-      - name: Sync VERSION file to released tag
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION=${{ github.event.inputs.tag }}
-            VERSION=${VERSION#v}
-          else
-            VERSION=${GITHUB_REF#refs/tags/v}
-          fi
-
-          CURRENT_VERSION=$(tr -d '\r\n' < backend/cmd/server/VERSION || true)
-          if [ "$CURRENT_VERSION" = "$VERSION" ]; then
-            echo "VERSION file already matches $VERSION"
-            exit 0
-          fi
-
-          echo "$VERSION" > backend/cmd/server/VERSION
-
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add backend/cmd/server/VERSION
-          git commit -m "chore: sync VERSION to ${VERSION} [skip ci]"
-          git push origin HEAD:${CUSTOM_RELEASE_BRANCH}

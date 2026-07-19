@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,10 +29,12 @@ var (
 )
 
 const (
-	updateCacheKey           = "update_check_cache"
-	updateCacheTTL           = 1200 // 20 minutes
-	defaultUpdateRepository  = "Wei-Shaw/sub2api"
-	defaultUpdateDockerImage = "weishaw/sub2api"
+	updateCacheKey = "update_check_cache"
+	updateCacheTTL = 1200 // 20 minutes
+	// Keep dashboard updates on this downstream's tested Release channel.
+	// Upstream changes are integrated through custom/main, then released here.
+	defaultUpdateRepository  = "X-manist/EntangledAPI"
+	defaultUpdateDockerImage = "ghcr.io/x-manist/sub2api"
 
 	// Security: allowed download domains for updates
 	allowedDownloadHost = "github.com"
@@ -217,15 +220,16 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, releaseAssets []
 	if downloadURL == "" {
 		return fmt.Errorf("no compatible release found for %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
+	if checksumURL == "" {
+		return fmt.Errorf("release is missing required checksums.txt")
+	}
 
 	// SECURITY: Validate download URL is from trusted domain
 	if err := validateDownloadURL(downloadURL); err != nil {
 		return fmt.Errorf("invalid download URL: %w", err)
 	}
-	if checksumURL != "" {
-		if err := validateDownloadURL(checksumURL); err != nil {
-			return fmt.Errorf("invalid checksum URL: %w", err)
-		}
+	if err := validateDownloadURL(checksumURL); err != nil {
+		return fmt.Errorf("invalid checksum URL: %w", err)
 	}
 
 	// Get current executable path
@@ -254,11 +258,9 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, releaseAssets []
 		return fmt.Errorf("download failed: %w", err)
 	}
 
-	// Verify checksum if available
-	if checksumURL != "" {
-		if err := s.verifyChecksum(ctx, archivePath, checksumURL); err != nil {
-			return fmt.Errorf("checksum verification failed: %w", err)
-		}
+	// Release archives are never installed without a matching SHA-256 entry.
+	if err := s.verifyChecksum(ctx, archivePath, checksumURL); err != nil {
+		return fmt.Errorf("checksum verification failed: %w", err)
 	}
 
 	// Extract binary from archive
@@ -652,11 +654,11 @@ func (s *UpdateService) getFromCache(ctx context.Context) (*UpdateInfo, error) {
 	if time.Now().Unix()-cached.Timestamp > updateCacheTTL {
 		return nil, fmt.Errorf("cache expired")
 	}
-	if cached.Repository != "" && cached.Repository != s.repository {
-		return nil, fmt.Errorf("cache belongs to a different update repository")
+	if cached.Repository == "" {
+		return nil, fmt.Errorf("legacy update cache is missing its repository")
 	}
-	if cached.Repository == "" && s.repository != defaultUpdateRepository {
-		return nil, fmt.Errorf("legacy cache cannot be used for a custom update repository")
+	if cached.Repository != s.repository {
+		return nil, fmt.Errorf("cache belongs to a different update repository")
 	}
 
 	return &UpdateInfo{
@@ -688,14 +690,68 @@ func (s *UpdateService) saveToCache(ctx context.Context, info *UpdateInfo) {
 	_ = s.cache.SetUpdateInfo(ctx, string(data), time.Duration(updateCacheTTL)*time.Second)
 }
 
-// compareVersions compares two semantic versions
+// compareVersions compares releases while treating this downstream's
+// -entangled.N revision as newer than the upstream stable release with the
+// same base version. Standard semver intentionally orders prereleases before
+// a stable release, which is the opposite of our downstream channel semantics.
 func compareVersions(current, latest string) int {
+	currentBase, currentRevision, currentIsEntangled, currentIsRelease := parseReleaseVersion(current)
+	latestBase, latestRevision, latestIsEntangled, latestIsRelease := parseReleaseVersion(latest)
+	if currentIsRelease && latestIsRelease {
+		if baseComparison := semver.Compare(currentBase, latestBase); baseComparison != 0 {
+			return baseComparison
+		}
+		switch {
+		case currentIsEntangled && latestIsEntangled:
+			if currentRevision < latestRevision {
+				return -1
+			}
+			if currentRevision > latestRevision {
+				return 1
+			}
+			return 0
+		case currentIsEntangled:
+			return 1
+		case latestIsEntangled:
+			return -1
+		default:
+			// For all other versions on the same base, retain normal semver
+			// ordering. Combined with the cases above this gives a total order:
+			// other prerelease < stable < entangled.N.
+			return semver.Compare(normalizeSemver(current), normalizeSemver(latest))
+		}
+	}
+
 	currentSemver := normalizeSemver(current)
 	latestSemver := normalizeSemver(latest)
 	if semver.IsValid(currentSemver) && semver.IsValid(latestSemver) {
 		return semver.Compare(currentSemver, latestSemver)
 	}
 	return strings.Compare(strings.TrimSpace(current), strings.TrimSpace(latest))
+}
+
+func parseReleaseVersion(raw string) (base string, revision int64, entangled bool, ok bool) {
+	normalized := normalizeSemver(raw)
+	if !semver.IsValid(normalized) {
+		return "", 0, false, false
+	}
+
+	base = normalized
+	if index := strings.IndexAny(base, "-+"); index >= 0 {
+		base = base[:index]
+	}
+
+	const prefix = "entangled."
+	prerelease := strings.TrimPrefix(semver.Prerelease(normalized), "-")
+	if strings.HasPrefix(prerelease, prefix) {
+		revisionText := strings.TrimPrefix(prerelease, prefix)
+		parsedRevision, err := strconv.ParseInt(revisionText, 10, 64)
+		if err == nil && parsedRevision > 0 {
+			return base, parsedRevision, true, true
+		}
+	}
+
+	return base, 0, false, true
 }
 
 func normalizeSemver(version string) string {

@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"errors"
+	"runtime"
 	"testing"
 	"time"
 
@@ -73,6 +74,27 @@ func TestUpdateServicePerformUpdateNoUpdateReturnsSentinel(t *testing.T) {
 	require.Error(t, err)
 	require.True(t, errors.Is(err, ErrNoUpdateAvailable))
 	require.ErrorIs(t, err, ErrNoUpdateAvailable)
+}
+
+func TestUpdateServiceDefaultsToDownstreamReleaseSource(t *testing.T) {
+	client := &updateServiceGitHubClientStub{
+		release: &GitHubRelease{TagName: "v0.1.153-entangled.1"},
+	}
+	svc := NewUpdateService(
+		&updateServiceCacheStub{},
+		client,
+		"0.1.153-entangled.1",
+		"release",
+		"",
+		"",
+	)
+
+	info, err := svc.CheckUpdate(context.Background(), true)
+
+	require.NoError(t, err)
+	require.Equal(t, "X-manist/EntangledAPI", client.latestRepo)
+	require.Equal(t, "X-manist/EntangledAPI", info.Repository)
+	require.Equal(t, "ghcr.io/x-manist/sub2api", info.DockerImage)
 }
 
 func newRollbackTestService(current string, releases []*GitHubRelease) *UpdateService {
@@ -240,6 +262,11 @@ func TestCompareVersionsSupportsCustomReleaseSequence(t *testing.T) {
 		{current: "v0.1.151-entangled.2", latest: "0.1.151-entangled.2", want: 0},
 		{current: "0.1.151-entangled.2", latest: "0.1.152-entangled.1", want: -1},
 		{current: "0.1.152-entangled.1", latest: "0.1.151-entangled.9", want: 1},
+		{current: "0.1.153", latest: "0.1.153-entangled.1", want: -1},
+		{current: "0.1.153-entangled.2", latest: "0.1.153", want: 1},
+		{current: "0.1.153-rc.1", latest: "0.1.153", want: -1},
+		{current: "0.1.153", latest: "0.1.153-entangled.2", want: -1},
+		{current: "0.1.153-zzz.1", latest: "0.1.153-entangled.1", want: -1},
 		{current: "0.1.149-green.1", latest: "0.1.151-entangled.1", want: -1},
 	}
 
@@ -254,6 +281,64 @@ func TestCompareVersionsSupportsCustomReleaseSequence(t *testing.T) {
 			require.Zero(t, got, "%s vs %s", tt.current, tt.latest)
 		}
 	}
+}
+
+func TestCompareVersionsDefinesTransitiveDownstreamOrder(t *testing.T) {
+	ordered := []string{
+		"1.0.0-alpha.1",
+		"1.0.0-rc.1",
+		"1.0.0",
+		"1.0.0-entangled.1",
+		"1.0.0-entangled.2",
+		"1.0.1-alpha.1",
+	}
+
+	for i := range ordered {
+		require.Zero(t, compareVersions(ordered[i], ordered[i]))
+		for j := i + 1; j < len(ordered); j++ {
+			require.Less(t, compareVersions(ordered[i], ordered[j]), 0, "%s should precede %s", ordered[i], ordered[j])
+			require.Greater(t, compareVersions(ordered[j], ordered[i]), 0, "%s should follow %s", ordered[j], ordered[i])
+		}
+	}
+}
+
+func TestUpdateServiceRejectsLegacyCacheWithoutRepository(t *testing.T) {
+	cache := &updateServiceCacheStub{data: `{
+		"latest":"0.1.153",
+		"release_info":null,
+		"timestamp":9999999999
+	}`}
+	svc := NewUpdateService(
+		cache,
+		&updateServiceGitHubClientStub{},
+		"0.1.152-entangled.1",
+		"release",
+		"",
+		"",
+	)
+
+	_, err := svc.getFromCache(context.Background())
+
+	require.ErrorContains(t, err, "legacy update cache is missing its repository")
+}
+
+func TestUpdateServiceRejectsReleaseWithoutChecksumAsset(t *testing.T) {
+	svc := NewUpdateService(
+		&updateServiceCacheStub{},
+		&updateServiceGitHubClientStub{},
+		"0.1.153-entangled.1",
+		"release",
+		"",
+		"",
+	)
+
+	err := svc.applyReleaseAssets(context.Background(), []Asset{{
+		Name:        "sub2api_0.1.153-entangled.2_" + runtime.GOOS + "_" + runtime.GOARCH + ".tar.gz",
+		DownloadURL: "https://github.com/X-manist/EntangledAPI/releases/download/v0.1.153-entangled.2/sub2api.tar.gz",
+	}})
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "missing required checksums.txt")
 }
 
 func TestUpdateAssetFileNameUsesReleaseAssetNameForPrivateAPIURL(t *testing.T) {
