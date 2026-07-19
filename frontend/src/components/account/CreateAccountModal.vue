@@ -1158,7 +1158,59 @@
           />
           <p v-if="baseUrlHint" class="input-hint">{{ baseUrlHint }}</p>
         </div>
-        <div>
+        <div v-if="isGitHubCopilot">
+          <label class="input-label">{{ t('admin.accounts.codingPlans.githubCopilot.methodLabel') }}</label>
+          <div
+            class="mt-2 grid grid-cols-1 gap-2 rounded-lg bg-gray-100 p-1 sm:grid-cols-2 dark:bg-dark-700"
+            data-testid="github-copilot-credential-method"
+            role="group"
+            :aria-label="t('admin.accounts.codingPlans.githubCopilot.methodLabel')"
+          >
+            <button
+              type="button"
+              data-testid="github-copilot-method-oauth"
+              :aria-pressed="githubCopilotCredentialMethod === 'oauth'"
+              :class="[
+                'flex items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all',
+                githubCopilotCredentialMethod === 'oauth'
+                  ? 'bg-white text-primary-700 shadow-sm dark:bg-dark-600 dark:text-primary-400'
+                  : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+              ]"
+              @click="selectGitHubCopilotCredentialMethod('oauth')"
+            >
+              <Icon name="link" size="sm" />
+              {{ t('admin.accounts.codingPlans.githubCopilot.oauthMethod') }}
+              <span class="rounded-full bg-primary-100 px-1.5 py-0.5 text-[10px] font-semibold text-primary-700 dark:bg-primary-900/40 dark:text-primary-300">
+                {{ t('admin.accounts.codingPlans.githubCopilot.recommended') }}
+              </span>
+            </button>
+            <button
+              type="button"
+              data-testid="github-copilot-method-manual"
+              :aria-pressed="githubCopilotCredentialMethod === 'manual'"
+              :class="[
+                'flex items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all',
+                githubCopilotCredentialMethod === 'manual'
+                  ? 'bg-white text-primary-700 shadow-sm dark:bg-dark-600 dark:text-primary-400'
+                  : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+              ]"
+              @click="selectGitHubCopilotCredentialMethod('manual')"
+            >
+              <Icon name="key" size="sm" />
+              {{ t('admin.accounts.codingPlans.githubCopilot.manualMethod') }}
+            </button>
+          </div>
+        </div>
+
+        <GitHubCopilotAuthorization
+          v-if="isGitHubCopilot && githubCopilotCredentialMethod === 'oauth'"
+          ref="githubCopilotOAuthRef"
+          v-model:session-id="githubCopilotOAuthSessionId"
+          :proxy-id="form.proxy_id"
+          @use-manual="selectGitHubCopilotCredentialMethod('manual')"
+        />
+
+        <div v-else>
           <label class="input-label">{{ codingPlanCredentialLabel }}</label>
           <input
             v-model="apiKeyValue"
@@ -1177,6 +1229,17 @@
             "
           />
           <p v-if="apiKeyHint" class="input-hint">{{ apiKeyHint }}</p>
+          <a
+            v-if="isGitHubCopilot"
+            :href="githubCopilotPATUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary-600 hover:underline dark:text-primary-400"
+            data-testid="github-copilot-create-pat"
+          >
+            {{ t('admin.accounts.codingPlans.githubCopilot.createPAT') }}
+            <Icon name="externalLink" size="xs" />
+          </a>
         </div>
 
         <!-- Gemini API Key tier selection -->
@@ -3582,6 +3645,7 @@ import {
   type OpenAIWSMode
 } from '@/utils/openaiWsMode'
 import OAuthAuthorizationFlow from './OAuthAuthorizationFlow.vue'
+import GitHubCopilotAuthorization from './GitHubCopilotAuthorization.vue'
 
 // Type for exposed OAuthAuthorizationFlow component
 // Note: defineExpose automatically unwraps refs, so we use the unwrapped types
@@ -3598,6 +3662,15 @@ interface OAuthFlowExposed {
   inputMethod: AuthInputMethod
   reset: () => void
 }
+
+interface GitHubCopilotOAuthExposed {
+  reset: () => void
+}
+
+type GitHubCopilotCredentialMethod = 'oauth' | 'manual'
+
+const githubCopilotPATUrl =
+  'https://github.com/settings/personal-access-tokens/new?name=Sub2API%20Copilot&description=Use%20GitHub%20Copilot%20with%20Sub2API&copilot_requests=write'
 
 const { t } = useI18n()
 const authStore = useAuthStore()
@@ -3702,6 +3775,7 @@ const currentOAuthError = computed(() => {
 
 // Refs
 const oauthFlowRef = ref<OAuthFlowExposed | null>(null)
+const githubCopilotOAuthRef = ref<GitHubCopilotOAuthExposed | null>(null)
 
 // Model mapping type
 interface ModelMapping {
@@ -3723,11 +3797,28 @@ const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock' | 'service_acco
 const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-token'
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
+const githubCopilotCredentialMethod = ref<GitHubCopilotCredentialMethod>('oauth')
+const githubCopilotOAuthSessionId = ref('')
+
+const resetGitHubCopilotAuthorization = () => {
+  githubCopilotOAuthRef.value?.reset()
+  githubCopilotOAuthSessionId.value = ''
+}
+
+const selectGitHubCopilotCredentialMethod = (method: GitHubCopilotCredentialMethod) => {
+  if (githubCopilotCredentialMethod.value === method) return
+  resetGitHubCopilotAuthorization()
+  apiKeyValue.value = ''
+  githubCopilotCredentialMethod.value = method
+}
 
 const selectPlatform = (platform: AccountPlatform) => {
   const leavingCodingPlan = Boolean(codingPlanProvider.value)
   const changingPlatform = form.platform !== platform
   if (!leavingCodingPlan && !changingPlatform) return
+
+  resetGitHubCopilotAuthorization()
+  githubCopilotCredentialMethod.value = 'oauth'
 
   // This field is shared by every API-key provider. Never carry a secret
   // across upstream identities, or it could be submitted to the wrong host.
@@ -3755,6 +3846,9 @@ const selectCodingPlanProvider = (provider: CodingPlanUpstreamProvider) => {
   const preset = getCodingPlanProviderPreset(provider)
   if (!preset) return
   if (codingPlanProvider.value === provider) return
+
+  resetGitHubCopilotAuthorization()
+  githubCopilotCredentialMethod.value = 'oauth'
 
   // Switching from a regular API-key account or another Coding Plan changes
   // the upstream receiving the credential, so require the user to re-enter it.
@@ -4658,6 +4752,17 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
       })
       return
     }
+    const githubOAuthExpired =
+      isGitHubCopilot.value
+      && githubCopilotCredentialMethod.value === 'oauth'
+      && (error?.reason === 'GITHUB_COPILOT_OAUTH_SESSION_EXPIRED'
+        || error?.reason === 'GITHUB_COPILOT_OAUTH_SESSION_NOT_FOUND'
+        || error?.status === 410)
+    if (githubOAuthExpired) {
+      resetGitHubCopilotAuthorization()
+      appStore.showError(t('admin.accounts.codingPlans.githubCopilot.oauth.expired'))
+      return
+    }
     appStore.showError(error.response?.data?.message || error.response?.data?.detail || t('admin.accounts.failedToCreate'))
   } finally {
     submitting.value = false
@@ -4666,6 +4771,7 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
 
 // Methods
 const resetForm = () => {
+  resetGitHubCopilotAuthorization()
   step.value = 1
   codingPlanProvider.value = null
   form.name = ''
@@ -4684,6 +4790,7 @@ const resetForm = () => {
   addMethod.value = 'oauth'
   apiKeyBaseUrl.value = 'https://api.anthropic.com'
   apiKeyValue.value = ''
+  githubCopilotCredentialMethod.value = 'oauth'
   editQuotaLimit.value = null
   editQuotaDailyLimit.value = null
   editQuotaWeeklyLimit.value = null
@@ -4771,6 +4878,7 @@ const resetForm = () => {
 }
 
 const handleClose = () => {
+  resetGitHubCopilotAuthorization()
   antigravityMixedChannelConfirmed.value = false
   clearMixedChannelDialog()
   emit('close')
@@ -5107,13 +5215,22 @@ const handleSubmit = async () => {
     return
   }
 
-  // For apikey type, create directly
-  if (!apiKeyValue.value.trim()) {
+  const selectedCodingPlanPreset = codingPlanPreset.value
+  const usesGitHubCopilotOAuth =
+    selectedCodingPlanPreset?.id === 'github_copilot'
+    && githubCopilotCredentialMethod.value === 'oauth'
+
+  // For apikey type, create directly. GitHub Device Flow submits an opaque
+  // server-side session instead of exposing the OAuth token to this form.
+  if (usesGitHubCopilotOAuth) {
+    if (!githubCopilotOAuthSessionId.value) {
+      appStore.showError(t('admin.accounts.codingPlans.githubCopilot.oauth.authorizationRequired'))
+      return
+    }
+  } else if (!apiKeyValue.value.trim()) {
     appStore.showError(t('admin.accounts.pleaseEnterApiKey'))
     return
   }
-
-  const selectedCodingPlanPreset = codingPlanPreset.value
 
   // Determine default base URL based on platform
   const defaultBaseUrl =
@@ -5127,11 +5244,18 @@ const handleSubmit = async () => {
 
   // Build credentials with optional model mapping
   const credentials: Record<string, unknown> = selectedCodingPlanPreset
-    ? buildCodingPlanCredentials(selectedCodingPlanPreset, apiKeyValue.value.trim())
+    ? buildCodingPlanCredentials(
+        selectedCodingPlanPreset,
+        usesGitHubCopilotOAuth ? '' : apiKeyValue.value.trim()
+      )
     : {
         base_url: apiKeyBaseUrl.value.trim() || defaultBaseUrl,
         api_key: apiKeyValue.value.trim()
       }
+  if (usesGitHubCopilotOAuth) {
+    delete credentials.api_key
+    credentials.github_copilot_oauth_session_id = githubCopilotOAuthSessionId.value
+  }
   if (form.platform === 'gemini') {
     credentials.tier_id = geminiTierAIStudio.value
   }

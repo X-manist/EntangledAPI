@@ -504,6 +504,39 @@ export default {
         title: 'Coding Plan',
         strictModels: '预置模型',
         strictModelsHint: '实际可用范围以该账号的套餐、组织策略和上游授权为准。',
+        githubCopilot: {
+          methodLabel: '授权方式',
+          oauthMethod: '授权 GitHub',
+          manualMethod: '手动填写 Token',
+          recommended: '推荐',
+          createPAT: '创建已授予 Copilot Requests 权限的 fine-grained PAT',
+          oauth: {
+            title: '授权 GitHub 账号',
+            description: '通过 GitHub Device Flow 连接拥有 Copilot 订阅的账号。',
+            checking: '正在检查 OAuth 配置…',
+            notConfigured:
+              '此中转站尚未配置 GitHub 授权。请配置已启用 Device Flow 的 GitHub OAuth App，或改用 Token。',
+            capabilitiesFailed: '无法检查 GitHub 授权是否可用。',
+            useManual: '切换到手动 Token',
+            start: '授权 GitHub',
+            starting: '正在发起授权…',
+            startFailed: '无法发起 GitHub 授权。',
+            enterCode: '请在 GitHub 页面输入此一次性代码：',
+            copyCode: '复制一次性代码',
+            openGitHub: '打开 GitHub',
+            waiting: '正在等待 GitHub 授权，本页面会自动更新。',
+            authorized: 'GitHub 授权成功',
+            authorizedAs: "GitHub 授权成功：{'@'}{login}",
+            reauthorize: '重新授权 GitHub',
+            tokenKeptOnServer: 'OAuth Token 只保存在服务端，浏览器仅持有不透明的短期会话 ID。',
+            expired: '本次授权码已过期，请重新开始授权。',
+            denied: 'GitHub 授权已取消或被拒绝。',
+            entitlementRequired: '该 GitHub 账号没有可用的 Copilot 权益，请确认订阅和组织策略。',
+            failed: 'GitHub 授权失败。',
+            tryAgain: '重试',
+            authorizationRequired: '请先完成 GitHub 授权，再创建账号。'
+          }
+        },
         providers: {
           glm_coding_plan: {
             credential: 'GLM Coding Plan 密钥',
@@ -522,7 +555,7 @@ export default {
           github_copilot: {
             credential: 'GitHub Token',
             credentialRequired: 'GitHub Token *',
-            placeholder: 'ghu_... 或 github_pat_...',
+            placeholder: 'gho_...、ghu_... 或 github_pat_...',
             credentialHint: '推荐使用 fine-grained PAT，并为目标账号授予 Copilot Requests 权限。',
             baseUrlHint: ''
           }

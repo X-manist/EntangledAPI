@@ -6,10 +6,16 @@ const {
   createAccountMock,
   importCodexSessionMock,
   createOpenAICodexPATMock,
+  getGitHubCopilotOAuthCapabilitiesMock,
+  startGitHubCopilotOAuthDeviceMock,
+  pollGitHubCopilotOAuthDeviceMock,
 } = vi.hoisted(() => ({
   createAccountMock: vi.fn(),
   importCodexSessionMock: vi.fn(),
   createOpenAICodexPATMock: vi.fn(),
+  getGitHubCopilotOAuthCapabilitiesMock: vi.fn(),
+  startGitHubCopilotOAuthDeviceMock: vi.fn(),
+  pollGitHubCopilotOAuthDeviceMock: vi.fn(),
 }))
 
 vi.mock('@/stores/app', () => ({
@@ -31,6 +37,9 @@ vi.mock('@/api/admin', () => ({
       checkMixedChannelRisk: vi.fn().mockResolvedValue({ has_risk: false }),
       importCodexSession: importCodexSessionMock,
       createOpenAICodexPAT: createOpenAICodexPATMock,
+      getGitHubCopilotOAuthCapabilities: getGitHubCopilotOAuthCapabilitiesMock,
+      startGitHubCopilotOAuthDevice: startGitHubCopilotOAuthDeviceMock,
+      pollGitHubCopilotOAuthDevice: pollGitHubCopilotOAuthDeviceMock,
     },
     settings: {
       getWebSearchEmulationConfig: vi.fn().mockResolvedValue({ enabled: false, providers: [] }),
@@ -215,12 +224,20 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 describe('CreateAccountModal Coding Plans', () => {
   beforeEach(() => {
     createAccountMock.mockReset().mockResolvedValue({})
+    getGitHubCopilotOAuthCapabilitiesMock.mockReset().mockResolvedValue({ configured: true })
+    startGitHubCopilotOAuthDeviceMock.mockReset().mockResolvedValue({
+      oauth_session_id: 'device-session-id',
+      user_code: 'ABCD-EFGH',
+      verification_uri: 'https://github.com/login/device',
+      expires_in: 900,
+      interval: 1,
+    })
+    pollGitHubCopilotOAuthDeviceMock.mockReset().mockResolvedValue({ status: 'pending' })
   })
 
   it.each([
     ['glm_coding_plan', 'https://open.bigmodel.cn/api/coding/paas/v4'],
-    ['kimi_coding_plan', 'https://api.kimi.com/coding/v1'],
-    ['github_copilot', undefined]
+    ['kimi_coding_plan', 'https://api.kimi.com/coding/v1']
   ] as const)('creates %s as a strict OpenAI-compatible API key account', async (provider, baseUrl) => {
     const wrapper = mountModal()
     await wrapper.get(`[data-testid="coding-plan-${provider}"]`).trigger('click')
@@ -245,11 +262,257 @@ describe('CreateAccountModal Coding Plans', () => {
       }
     })
     expect(Object.keys(payload.credentials.model_mapping).length).toBeGreaterThan(0)
-    if (baseUrl) {
-      expect(payload.credentials.base_url).toBe(baseUrl)
-    } else {
+    expect(payload.credentials.base_url).toBe(baseUrl)
+  })
+
+  it('shows GitHub authorization as the recommended default and keeps manual Token as fallback', async () => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="coding-plan-github_copilot"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="github-copilot-method-oauth"]').classes()).toContain('bg-white')
+    expect(wrapper.get('[data-testid="github-copilot-method-oauth"]').text()).toContain(
+      'admin.accounts.codingPlans.githubCopilot.recommended'
+    )
+    expect(wrapper.find('[data-testid="github-copilot-oauth"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="api-key-value"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="github-copilot-method-oauth"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('[data-testid="github-copilot-method-manual"]').attributes('aria-pressed')).toBe('false')
+  })
+
+  it('creates GitHub Copilot with a manually entered Token and links to a prefilled fine-grained PAT', async () => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="coding-plan-github_copilot"]').trigger('click')
+    await wrapper.get('[data-testid="github-copilot-method-manual"]').trigger('click')
+    await wrapper.get('[data-tour="account-form-name"]').setValue('Copilot manual account')
+    await wrapper.get('[data-testid="api-key-value"]').setValue('github_pat_manual-secret')
+
+    expect(wrapper.get('[data-testid="github-copilot-create-pat"]').attributes('href')).toBe(
+      'https://github.com/settings/personal-access-tokens/new?name=Sub2API%20Copilot&description=Use%20GitHub%20Copilot%20with%20Sub2API&copilot_requests=write'
+    )
+
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    const payload = createAccountMock.mock.calls[0]?.[0]
+    expect(payload).toMatchObject({
+      platform: 'openai',
+      type: 'apikey',
+      extra: {
+        upstream_provider: 'github_copilot',
+        openai_responses_mode: 'force_chat_completions',
+      },
+      credentials: {
+        api_key: 'github_pat_manual-secret',
+        openai_capabilities: ['chat_completions'],
+      },
+    })
+    expect(payload.credentials).not.toHaveProperty('github_copilot_oauth_session_id')
+    expect(payload.credentials).not.toHaveProperty('base_url')
+  })
+
+  it('submits only the opaque OAuth session while retaining preset models and capabilities', async () => {
+    vi.useFakeTimers()
+    const authorizationWindow = {
+      opener: window,
+      closed: false,
+      close: vi.fn(),
+      location: { href: 'about:blank' },
+    } as unknown as Window
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(authorizationWindow)
+    startGitHubCopilotOAuthDeviceMock.mockResolvedValue({
+      oauth_session_id: 'opaque-device-session',
+      user_code: 'WXYZ-1234',
+      verification_uri: 'https://github.com/login/device',
+      expires_in: 900,
+      interval: 1,
+      access_token: 'must-never-reach-the-browser-ui',
+    })
+    pollGitHubCopilotOAuthDeviceMock.mockResolvedValue({
+      status: 'authorized',
+      github_login: 'octocat',
+      access_token: 'must-never-reach-the-account-payload',
+    })
+
+    try {
+      const wrapper = mountModal()
+      await wrapper.get('[data-testid="coding-plan-github_copilot"]').trigger('click')
+      await flushPromises()
+      await wrapper.get('[data-testid="github-copilot-start-oauth"]').trigger('click')
+      await flushPromises()
+
+      expect(openSpy).toHaveBeenCalledWith(
+        'about:blank',
+        '_blank'
+      )
+      expect(authorizationWindow.opener).toBeNull()
+      expect(authorizationWindow.location.href).toBe('https://github.com/login/device')
+      expect(wrapper.get('[data-testid="github-copilot-device-code"]').text()).toContain('WXYZ-1234')
+
+      await vi.advanceTimersByTimeAsync(1000)
+      await flushPromises()
+
+      expect(wrapper.get('[data-testid="github-copilot-oauth-authorized"]').text()).toContain(
+        'admin.accounts.codingPlans.githubCopilot.oauth.authorizedAs'
+      )
+      expect(wrapper.text()).not.toContain('must-never-reach')
+
+      await wrapper.get('[data-tour="account-form-name"]').setValue('Copilot OAuth account')
+      await wrapper.get('form#create-account-form').trigger('submit.prevent')
+      await flushPromises()
+
+      expect(createAccountMock).toHaveBeenCalledTimes(1)
+      const payload = createAccountMock.mock.calls[0]?.[0]
+      expect(payload).toMatchObject({
+        platform: 'openai',
+        type: 'apikey',
+        extra: {
+          upstream_provider: 'github_copilot',
+          openai_responses_mode: 'force_chat_completions',
+        },
+        credentials: {
+          github_copilot_oauth_session_id: 'opaque-device-session',
+          openai_capabilities: ['chat_completions'],
+        },
+      })
+      expect(payload.credentials).not.toHaveProperty('api_key')
       expect(payload.credentials).not.toHaveProperty('base_url')
-      expect(wrapper.find('input[readonly]').exists()).toBe(false)
+      expect(Object.keys(payload.credentials.model_mapping).length).toBeGreaterThan(0)
+      expect(JSON.stringify(payload)).not.toContain('must-never-reach')
+    } finally {
+      openSpy.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it('stops Device Flow polling when switching to manual Token', async () => {
+    vi.useFakeTimers()
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(null)
+
+    try {
+      const wrapper = mountModal()
+      await wrapper.get('[data-testid="coding-plan-github_copilot"]').trigger('click')
+      await flushPromises()
+      await wrapper.get('[data-testid="github-copilot-start-oauth"]').trigger('click')
+      await flushPromises()
+
+      await wrapper.get('[data-testid="github-copilot-method-manual"]').trigger('click')
+      await vi.advanceTimersByTimeAsync(2000)
+
+      expect(pollGitHubCopilotOAuthDeviceMock).not.toHaveBeenCalled()
+      expect(wrapper.find('[data-testid="github-copilot-oauth"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="api-key-value"]').exists()).toBe(true)
+    } finally {
+      openSpy.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it('expires an authorized Device Flow session and offers authorization again', async () => {
+    vi.useFakeTimers()
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(null)
+    startGitHubCopilotOAuthDeviceMock.mockResolvedValue({
+      oauth_session_id: 'short-session',
+      user_code: 'ABCD-EFGH',
+      verification_uri: 'https://github.com/login/device',
+      expires_in: 2,
+      interval: 1,
+    })
+    pollGitHubCopilotOAuthDeviceMock.mockResolvedValue({
+      status: 'authorized',
+      github_login: 'octocat',
+    })
+
+    try {
+      const wrapper = mountModal()
+      await wrapper.get('[data-testid="coding-plan-github_copilot"]').trigger('click')
+      await flushPromises()
+      await wrapper.get('[data-testid="github-copilot-start-oauth"]').trigger('click')
+      await flushPromises()
+      await vi.advanceTimersByTimeAsync(1000)
+      await flushPromises()
+      expect(wrapper.find('[data-testid="github-copilot-oauth-authorized"]').exists()).toBe(true)
+
+      await vi.advanceTimersByTimeAsync(1000)
+      await flushPromises()
+
+      expect(wrapper.find('[data-testid="github-copilot-oauth-authorized"]').exists()).toBe(false)
+      expect(wrapper.get('[data-testid="github-copilot-oauth-error"]').text()).toContain(
+        'admin.accounts.codingPlans.githubCopilot.oauth.expired'
+      )
+    } finally {
+      openSpy.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it('retries a transient entitlement check failure without restarting Device Flow', async () => {
+    vi.useFakeTimers()
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(null)
+    pollGitHubCopilotOAuthDeviceMock
+      .mockRejectedValueOnce({ reason: 'GITHUB_COPILOT_OAUTH_UNAVAILABLE' })
+      .mockResolvedValueOnce({ status: 'authorized', github_login: 'octocat' })
+
+    try {
+      const wrapper = mountModal()
+      await wrapper.get('[data-testid="coding-plan-github_copilot"]').trigger('click')
+      await flushPromises()
+      await wrapper.get('[data-testid="github-copilot-start-oauth"]').trigger('click')
+      await flushPromises()
+
+      await vi.advanceTimersByTimeAsync(1000)
+      await flushPromises()
+      expect(pollGitHubCopilotOAuthDeviceMock).toHaveBeenCalledTimes(1)
+      expect(startGitHubCopilotOAuthDeviceMock).toHaveBeenCalledTimes(1)
+
+      await vi.advanceTimersByTimeAsync(1000)
+      await flushPromises()
+      expect(pollGitHubCopilotOAuthDeviceMock).toHaveBeenCalledTimes(2)
+      expect(startGitHubCopilotOAuthDeviceMock).toHaveBeenCalledTimes(1)
+      expect(wrapper.find('[data-testid="github-copilot-oauth-authorized"]').exists()).toBe(true)
+    } finally {
+      openSpy.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  it('clears an expired session returned by account creation and can authorize again', async () => {
+    vi.useFakeTimers()
+    const openSpy = vi.spyOn(window, 'open').mockReturnValue(null)
+    pollGitHubCopilotOAuthDeviceMock.mockResolvedValue({
+      status: 'authorized',
+      github_login: 'octocat',
+    })
+    createAccountMock.mockRejectedValueOnce({
+      status: 410,
+      reason: 'GITHUB_COPILOT_OAUTH_SESSION_EXPIRED',
+    })
+
+    try {
+      const wrapper = mountModal()
+      await wrapper.get('[data-testid="coding-plan-github_copilot"]').trigger('click')
+      await flushPromises()
+      await wrapper.get('[data-testid="github-copilot-start-oauth"]').trigger('click')
+      await flushPromises()
+      await vi.advanceTimersByTimeAsync(1000)
+      await flushPromises()
+      expect(wrapper.find('[data-testid="github-copilot-oauth-authorized"]').exists()).toBe(true)
+
+      await wrapper.get('[data-tour="account-form-name"]').setValue('Expired Copilot account')
+      await wrapper.get('form#create-account-form').trigger('submit.prevent')
+      await flushPromises()
+
+      expect(createAccountMock).toHaveBeenCalledTimes(1)
+      expect(wrapper.find('[data-testid="github-copilot-oauth-authorized"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="github-copilot-start-oauth"]').exists()).toBe(true)
+
+      await wrapper.get('[data-testid="github-copilot-start-oauth"]').trigger('click')
+      await flushPromises()
+      expect(startGitHubCopilotOAuthDeviceMock).toHaveBeenCalledTimes(2)
+    } finally {
+      openSpy.mockRestore()
+      vi.useRealTimers()
     }
   })
 

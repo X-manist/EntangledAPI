@@ -551,6 +551,25 @@ func (s *AccountRepoSuite) TestGroupBinding_And_BindGroups() {
 	s.Require().Len(groups, 2, "expected 2 groups after bind")
 }
 
+func (s *AccountRepoSuite) TestCreateWithGroups() {
+	group := mustCreateGroup(s.T(), s.client, &service.Group{Name: "g-create-atomic"})
+	account := &service.Account{
+		Name:        "acc-create-atomic",
+		Platform:    service.PlatformOpenAI,
+		Type:        service.AccountTypeAPIKey,
+		Status:      service.StatusActive,
+		Credentials: map[string]any{"api_key": "test"},
+		Schedulable: true,
+	}
+
+	s.Require().NoError(s.repo.CreateWithGroups(s.ctx, account, []int64{group.ID}))
+	groups, err := s.repo.GetGroups(s.ctx, account.ID)
+	s.Require().NoError(err)
+	s.Require().Len(groups, 1)
+	s.Require().Equal(group.ID, groups[0].ID)
+	s.Require().Equal([]int64{group.ID}, account.GroupIDs)
+}
+
 func (s *AccountRepoSuite) TestBindGroups_EmptyList() {
 	account := mustCreateAccount(s.T(), s.client, &service.Account{Name: "acc-empty"})
 	group := mustCreateGroup(s.T(), s.client, &service.Group{Name: "g-empty"})

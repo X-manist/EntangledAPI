@@ -468,6 +468,27 @@ func (s *SettingService) GetEmailOAuthProviderConfig(ctx context.Context, provid
 	return cfg, nil
 }
 
+// GetGitHubCopilotOAuthClientID returns the GitHub OAuth App client ID used by
+// the Copilot device flow. Device flow does not require a client secret or the
+// site's GitHub sign-in toggle to be enabled, so this intentionally reads only
+// the effective client ID (database setting first, static config fallback).
+func (s *SettingService) GetGitHubCopilotOAuthClientID(ctx context.Context) (string, error) {
+	if s == nil {
+		return "", nil
+	}
+
+	settings := map[string]string{}
+	if s.settingRepo != nil {
+		var err error
+		settings, err = s.settingRepo.GetMultiple(ctx, []string{SettingKeyGitHubOAuthClientID})
+		if err != nil {
+			return "", fmt.Errorf("get github copilot oauth client id setting: %w", err)
+		}
+	}
+
+	return strings.TrimSpace(s.effectiveEmailOAuthConfig(settings, "github").ClientID), nil
+}
+
 // GetLinuxDoConnectOAuthConfig 返回用于登录的"最终生效" LinuxDo Connect 配置。
 //
 // 优先级：

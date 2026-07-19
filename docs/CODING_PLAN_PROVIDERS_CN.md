@@ -53,21 +53,33 @@ GLM 同时接受表中的小写别名，例如 `glm-5.2`、`glm-5-turbo`、`glm-
 
 ### GitHub Copilot
 
-推荐使用 GitHub **fine-grained personal access token**：
+网站提供两个入口：
 
-1. Token 的 Resource owner 选择拥有 Copilot 权益的**个人账号**，不要选择组织。
-2. 在 **Account permissions** 中添加 **Copilot Requests: Read and write**，对应权限参数为 `copilot_requests=write`。
+1. **授权 GitHub（推荐）**：使用 GitHub OAuth Device Flow。点击授权后，按页面提示打开 GitHub 验证地址并输入一次性设备码；授权完成后返回网站添加账号。GitHub Token 只保存在后端，不会显示在浏览器中。
+2. **手动填写 Token**：作为 PAT 和授权故障的回退。支持 OAuth 用户 Token `gho_...`、GitHub App 用户访问 Token `ghu_...`，以及 fine-grained PAT `github_pat_...`；不支持 classic PAT `ghp_...`。
+
+手动创建 fine-grained PAT 时，可使用[预填好的 GitHub Token 创建页面](https://github.com/settings/personal-access-tokens/new?name=Sub2API%20Copilot&description=Use%20GitHub%20Copilot%20with%20Sub2API&copilot_requests=write)，并确认：
+
+1. Resource owner 选择拥有 Copilot 权益的**个人账号**，不要选择组织。
+2. **Account permissions** 中包含 **Copilot Requests: Read and write**，对应权限参数为 `copilot_requests=write`。
 3. Repository access 按实际需要选择最小范围，不要附加无关的仓库写入或管理权限。
-4. 生成 `github_pat_...` Token。GitHub Copilot CLI 官方不支持 classic `ghp_...` PAT。
 
-GitHub 官方说明见 [Copilot CLI 认证](https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/install-copilot-cli#authenticating-with-a-personal-access-token) 和 [fine-grained PAT 权限表](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#permissions)。Token 应按密码管理，泄露后立即吊销。
+GitHub 官方说明见 [Copilot CLI 认证](https://docs.github.com/en/copilot/how-tos/copilot-cli/set-up-copilot-cli/authenticate-copilot-cli)、[GitHub OAuth Device Flow](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/authorizing-oauth-apps) 和 [fine-grained PAT 权限表](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#permissions)。无论采用哪一种 Token，都应按密码管理，泄露后立即吊销。
+
+#### 部署者配置 GitHub 授权
+
+“授权 GitHub”需要部署者创建自己的 **GitHub OAuth App**，并在该 App 设置中开启 **Device Flow**。将 OAuth App 的 Client ID 写入系统设置 `github_oauth_client_id`；已有站点 GitHub 登录配置时可以直接复用同一个 Client ID。
+
+Device Flow 只使用 Client ID，因此不要求同时开启站点 GitHub 登录，也不以 `github_oauth_enabled` 或 `github_oauth_client_secret` 为前提。未配置 Client ID 或 OAuth App 未开启 Device Flow 时，用户仍可使用“手动填写 Token”入口。
+
+当前 Device Flow 的短期授权会话保存在发起请求的应用实例内，并在到期后主动清理。多副本部署需要让授权启动、轮询和最终账号创建保持在同一实例（例如对管理员会话启用负载均衡粘性）；不具备该条件时应使用单一管理实例或“手动填写 Token”。应用进程在授权完成前重启时，需要重新发起授权。
 
 ## 4. 在网站添加账号
 
 1. 进入 **管理后台 -> 分组**，创建或选择平台为 **OpenAI** 的分组。需要兼容 Claude SDK/Claude Code 时，开启“允许 `/v1/messages` 调度”并配置模型映射。
 2. 进入 **管理后台 -> 账号 -> 添加账号**。
 3. 填写账号名称，然后在 **Coding Plan** 区域选择 GLM、Kimi 或 GitHub Copilot。
-4. GLM/Kimi 填入对应 Coding Plan API Key；Copilot 填入上一步创建的 GitHub fine-grained PAT。
+4. GLM/Kimi 填入对应 Coding Plan API Key；Copilot 默认选择“授权 GitHub”，按设备码提示完成授权，也可以切换到“手动填写 Token”并填入受支持的 GitHub Token。
 5. 选择代理、并发数和刚创建的 OpenAI 分组，然后提交。官方 Base URL、Chat Completions 能力和严格模型映射会自动写入。
 6. 在账号列表点击 **测试账号**，选择该供应商支持的模型完成连接测试。若测试失败，先核对套餐状态、Token 权限、代理和模型授权。
 
@@ -115,6 +127,8 @@ curl -sS "$SUB2API_BASE_URL/v1/messages" \
 
 ## 6. Copilot 协议与使用边界
 
-Copilot 账号中保存的是 GitHub 客户端 Token。服务端会用它向 GitHub 交换短期 Copilot Token，并采用交换响应下发的 API 地址；短期 Token 临近过期或遇到认证失效时会重新交换。该交换端点、请求头和模型列表可能随 GitHub 客户端协议变化，不属于稳定承诺的公共 OpenAI API，升级后应重新执行账号测试和三个下游验证。
+Copilot 账号中保存的是 GitHub Token。无论通过 Device Flow 授权还是手动填写，服务端都会在后端保存该 Token，并用它交换短期 Copilot Token；短期 Token 临近过期或遇到认证失效时会重新交换。浏览器不会收到 Device Flow 获得的 GitHub Token。
+
+Copilot Token 的交换方式、交换响应下发的 API 地址、相关请求头和模型列表可能随 GitHub 客户端协议变化，不应视为 GitHub 承诺长期稳定的公共接口。升级后应重新执行账号测试和三个下游验证。
 
 使用这些账号时必须遵守 GLM Coding Plan、Kimi Code 和 GitHub Copilot 的套餐条款、授权工具范围、额度、计费及组织策略。本项目不承诺套餐一定允许通过中转站使用，也不承诺或提供规避客户端身份、User-Agent、授权工具名单、额度或风控规则的能力。上游拒绝某种客户端身份或使用方式时，应停止调用并按供应商规则处理。

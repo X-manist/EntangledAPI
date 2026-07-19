@@ -16,6 +16,10 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 )
 
+type accountWithGroupsCreator interface {
+	CreateWithGroups(ctx context.Context, account *Account, groupIDs []int64) error
+}
+
 // Account management implementations
 func (s *adminServiceImpl) ListAccounts(ctx context.Context, page, pageSize int, platform, accountType, status, search string, groupID int64, privacyMode string, sortBy, sortOrder string) ([]Account, int64, error) {
 	params := pagination.PaginationParams{Page: page, PageSize: pageSize, SortBy: sortBy, SortOrder: sortOrder}
@@ -202,15 +206,21 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 		}
 		account.LoadFactor = input.LoadFactor
 	}
-	if err := s.accountRepo.Create(ctx, account); err != nil {
-		return nil, err
-	}
-
-	// 绑定分组
 	if len(groupIDs) > 0 {
-		if err := s.accountRepo.BindGroups(ctx, account.ID, groupIDs); err != nil {
-			return nil, err
+		if atomicCreator, ok := s.accountRepo.(accountWithGroupsCreator); ok {
+			if err := atomicCreator.CreateWithGroups(ctx, account, groupIDs); err != nil {
+				return nil, err
+			}
+		} else {
+			if err := s.accountRepo.Create(ctx, account); err != nil {
+				return nil, err
+			}
+			if err := s.accountRepo.BindGroups(ctx, account.ID, groupIDs); err != nil {
+				return nil, err
+			}
 		}
+	} else if err := s.accountRepo.Create(ctx, account); err != nil {
+		return nil, err
 	}
 
 	// OAuth 账号：创建后异步设置隐私。

@@ -76,8 +76,18 @@ type longContextBillingRepoStub struct {
 	account          *Account
 	accounts         []*Account
 	createdAccount   *Account
+	createdGroupIDs  []int64
 	updateExtraCalls int
 	bulkUpdateCalls  int
+}
+
+func (r *longContextBillingRepoStub) CreateWithGroups(_ context.Context, account *Account, groupIDs []int64) error {
+	account.ID = 1
+	account.GroupIDs = append([]int64(nil), groupIDs...)
+	r.account = account
+	r.createdAccount = account
+	r.createdGroupIDs = append([]int64(nil), groupIDs...)
+	return nil
 }
 
 func (r *longContextBillingRepoStub) Create(_ context.Context, account *Account) error {
@@ -131,6 +141,25 @@ func TestAdminServiceCreateAccountDefaultsOpenAILongContextBillingDisabled(t *te
 	require.NoError(t, err)
 	require.Same(t, account, repo.createdAccount)
 	require.Equal(t, false, account.Extra[openAILongContextBillingEnabledKey])
+}
+
+func TestAdminServiceCreateAccountUsesAtomicInitialGroupBinding(t *testing.T) {
+	repo := &longContextBillingRepoStub{}
+	svc := &adminServiceImpl{accountRepo: repo}
+
+	account, err := svc.CreateAccount(context.Background(), &CreateAccountInput{
+		Name:                  "openai-account",
+		Platform:              PlatformOpenAI,
+		Type:                  AccountTypeAPIKey,
+		Credentials:           map[string]any{"api_key": "test"},
+		GroupIDs:              []int64{12, 34},
+		SkipDefaultGroupBind:  true,
+		SkipMixedChannelCheck: true,
+	})
+
+	require.NoError(t, err)
+	require.Same(t, account, repo.createdAccount)
+	require.Equal(t, []int64{12, 34}, repo.createdGroupIDs)
 }
 
 func TestAdminServiceCreateAccountRejectsMalformedOpenAILongContextBillingValue(t *testing.T) {

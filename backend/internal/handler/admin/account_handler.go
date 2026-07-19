@@ -52,6 +52,7 @@ type AccountHandler struct {
 	openaiOAuthService      *service.OpenAIOAuthService
 	geminiOAuthService      *service.GeminiOAuthService
 	antigravityOAuthService *service.AntigravityOAuthService
+	githubCopilotOAuth      githubCopilotOAuthCredentialService
 	rateLimitService        *service.RateLimitService
 	accountUsageService     *service.AccountUsageService
 	accountTestService      *service.AccountTestService
@@ -78,12 +79,50 @@ func NewAccountHandler(
 	rpmCache service.RPMCache,
 	tokenCacheInvalidator service.TokenCacheInvalidator,
 ) *AccountHandler {
+	return NewAccountHandlerWithGitHubCopilotOAuth(
+		adminService,
+		oauthService,
+		openaiOAuthService,
+		geminiOAuthService,
+		antigravityOAuthService,
+		nil,
+		rateLimitService,
+		accountUsageService,
+		accountTestService,
+		concurrencyService,
+		crsSyncService,
+		sessionLimitCache,
+		rpmCache,
+		tokenCacheInvalidator,
+	)
+}
+
+// NewAccountHandlerWithGitHubCopilotOAuth wires the optional GitHub Copilot
+// authorization service while preserving the original constructor for tests
+// and integrations that do not need that flow.
+func NewAccountHandlerWithGitHubCopilotOAuth(
+	adminService service.AdminService,
+	oauthService *service.OAuthService,
+	openaiOAuthService *service.OpenAIOAuthService,
+	geminiOAuthService *service.GeminiOAuthService,
+	antigravityOAuthService *service.AntigravityOAuthService,
+	githubCopilotOAuth *service.GitHubCopilotOAuthService,
+	rateLimitService *service.RateLimitService,
+	accountUsageService *service.AccountUsageService,
+	accountTestService *service.AccountTestService,
+	concurrencyService *service.ConcurrencyService,
+	crsSyncService *service.CRSSyncService,
+	sessionLimitCache service.SessionLimitCache,
+	rpmCache service.RPMCache,
+	tokenCacheInvalidator service.TokenCacheInvalidator,
+) *AccountHandler {
 	return &AccountHandler{
 		adminService:            adminService,
 		oauthService:            oauthService,
 		openaiOAuthService:      openaiOAuthService,
 		geminiOAuthService:      geminiOAuthService,
 		antigravityOAuthService: antigravityOAuthService,
+		githubCopilotOAuth:      githubCopilotOAuth,
 		rateLimitService:        rateLimitService,
 		accountUsageService:     accountUsageService,
 		accountTestService:      accountTestService,
@@ -801,14 +840,34 @@ func (h *AccountHandler) Create(c *gin.Context) {
 	// 捕获闭包内创建的账号引用，用于创建成功后触发异步探测。
 	// 幂等重放时闭包不会执行 → createdAccount 为 nil → 不重复调度。
 	var createdAccount *service.Account
+	var githubOAuthSessionID string
+	var githubOAuthAdminID int64
+	var githubOAuthCredentialPersisted bool
 
 	result, err := executeAdminIdempotent(c, "admin.accounts.create", req, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
+		credentials, oauthSessionID, err := h.resolveGitHubCopilotOAuthCredential(c, req.Platform, req.Type, req.Credentials, req.Extra)
+		if err != nil {
+			return nil, err
+		}
+		if oauthSessionID != "" {
+			githubOAuthSessionID = oauthSessionID
+			githubOAuthAdminID = getAdminIDFromContext(c)
+			defer func() {
+				if githubOAuthCredentialPersisted {
+					return
+				}
+				if releaseErr := h.githubCopilotOAuth.ReleaseCredential(githubOAuthAdminID, oauthSessionID); releaseErr != nil {
+					slog.Warn("github_copilot_oauth_release_failed", "error", releaseErr)
+				}
+			}()
+		}
+
 		account, execErr := h.adminService.CreateAccount(ctx, &service.CreateAccountInput{
 			Name:                  req.Name,
 			Notes:                 req.Notes,
 			Platform:              req.Platform,
 			Type:                  req.Type,
-			Credentials:           req.Credentials,
+			Credentials:           credentials,
 			Extra:                 req.Extra,
 			ProxyID:               req.ProxyID,
 			Concurrency:           req.Concurrency,
@@ -823,6 +882,7 @@ func (h *AccountHandler) Create(c *gin.Context) {
 		if execErr != nil {
 			return nil, execErr
 		}
+		githubOAuthCredentialPersisted = true
 		createdAccount = account
 		// Antigravity OAuth: 新账号直接设置隐私
 		h.adminService.ForceAntigravityPrivacy(ctx, account)
@@ -830,6 +890,11 @@ func (h *AccountHandler) Create(c *gin.Context) {
 		h.adminService.ForceOpenAIPrivacy(ctx, account)
 		return h.buildAccountResponseWithRuntime(ctx, account), nil
 	})
+	if githubOAuthSessionID != "" && githubOAuthCredentialPersisted {
+		if finalizeErr := h.githubCopilotOAuth.FinalizeCredential(githubOAuthAdminID, githubOAuthSessionID); finalizeErr != nil {
+			slog.Warn("github_copilot_oauth_finalize_failed", "error", finalizeErr)
+		}
+	}
 	if err != nil {
 		// 检查是否为混合渠道错误
 		var mixedErr *service.MixedChannelError

@@ -83,8 +83,17 @@ func (r *accountRepository) Create(ctx context.Context, account *service.Account
 	if account == nil {
 		return service.ErrAccountNilInput
 	}
+	if err := r.createAccountRecord(ctx, r.client, account); err != nil {
+		return err
+	}
+	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &account.ID, nil, buildSchedulerGroupPayload(account.GroupIDs)); err != nil {
+		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue account create failed: account=%d err=%v", account.ID, err)
+	}
+	return nil
+}
 
-	builder := r.client.Account.Create().
+func (r *accountRepository) createAccountRecord(ctx context.Context, client *dbent.Client, account *service.Account) error {
+	builder := client.Account.Create().
 		SetName(account.Name).
 		SetNillableNotes(account.Notes).
 		SetPlatform(account.Platform).
@@ -146,8 +155,59 @@ func (r *accountRepository) Create(ctx context.Context, account *service.Account
 	account.ID = created.ID
 	account.CreatedAt = created.CreatedAt
 	account.UpdatedAt = created.UpdatedAt
-	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &account.ID, nil, buildSchedulerGroupPayload(account.GroupIDs)); err != nil {
+	return nil
+}
+
+// CreateWithGroups persists a new account and its initial group bindings in a
+// single transaction. Admin account creation uses this optional capability so
+// a failed group bind cannot leave a credential-bearing orphan account behind.
+func (r *accountRepository) CreateWithGroups(ctx context.Context, account *service.Account, groupIDs []int64) error {
+	if account == nil {
+		return service.ErrAccountNilInput
+	}
+	tx, err := r.client.Tx(ctx)
+	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
+		return err
+	}
+	ownsTx := err == nil
+	var client *dbent.Client
+	if ownsTx {
+		defer func() { _ = tx.Rollback() }()
+		client = tx.Client()
+	} else {
+		client = r.client
+	}
+
+	if err := r.createAccountRecord(ctx, client, account); err != nil {
+		return err
+	}
+	if len(groupIDs) > 0 {
+		builders := make([]*dbent.AccountGroupCreate, 0, len(groupIDs))
+		for i, groupID := range groupIDs {
+			builders = append(builders, client.AccountGroup.Create().
+				SetAccountID(account.ID).
+				SetGroupID(groupID).
+				SetPriority(i+1),
+			)
+		}
+		if _, err := client.AccountGroup.CreateBulk(builders...).Save(ctx); err != nil {
+			return err
+		}
+	}
+	if ownsTx {
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+
+	account.GroupIDs = append([]int64(nil), groupIDs...)
+	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &account.ID, nil, buildSchedulerGroupPayload(groupIDs)); err != nil {
 		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue account create failed: account=%d err=%v", account.ID, err)
+	}
+	if len(groupIDs) > 0 {
+		if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountGroupsChanged, &account.ID, nil, buildSchedulerGroupPayload(groupIDs)); err != nil {
+			logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue initial group bind failed: account=%d err=%v", account.ID, err)
+		}
 	}
 	return nil
 }

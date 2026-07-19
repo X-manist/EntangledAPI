@@ -138,6 +138,80 @@ export async function create(accountData: CreateAccountRequest): Promise<Account
   return data
 }
 
+export interface GitHubCopilotOAuthCapabilities {
+  configured: boolean
+  pat_url?: string
+}
+
+export interface GitHubCopilotOAuthDeviceStartResponse {
+  oauth_session_id: string
+  user_code: string
+  verification_uri: string
+  verification_uri_complete?: string
+  expires_in: number
+  interval: number
+}
+
+export type GitHubCopilotOAuthDeviceStatus =
+  | 'pending'
+  | 'slow_down'
+  | 'authorized'
+  | 'expired'
+  | 'denied'
+  | 'error'
+
+export interface GitHubCopilotOAuthDevicePollResponse {
+  status: GitHubCopilotOAuthDeviceStatus
+  oauth_session_id?: string
+  interval?: number
+  github_login?: string
+  github_user_id?: number
+  message?: string
+}
+
+/**
+ * Return whether this installation can start GitHub's OAuth Device Flow.
+ * The OAuth client ID remains server-side; the browser only receives capability metadata.
+ */
+export async function getGitHubCopilotOAuthCapabilities(
+  options?: { signal?: AbortSignal }
+): Promise<GitHubCopilotOAuthCapabilities> {
+  const { data } = await apiClient.get<GitHubCopilotOAuthCapabilities>(
+    '/admin/accounts/github-copilot/oauth/capabilities',
+    { signal: options?.signal }
+  )
+  return data
+}
+
+/** Start a short-lived, opaque GitHub OAuth Device Flow session. */
+export async function startGitHubCopilotOAuthDevice(
+  payload: { proxy_id?: number | null },
+  options?: { signal?: AbortSignal }
+): Promise<GitHubCopilotOAuthDeviceStartResponse> {
+  const { data } = await apiClient.post<GitHubCopilotOAuthDeviceStartResponse>(
+    '/admin/accounts/github-copilot/oauth/device/start',
+    payload,
+    { signal: options?.signal }
+  )
+  return data
+}
+
+/**
+ * Poll a Device Flow session. The access token is retained by the server and is
+ * never returned to browser code.
+ */
+export async function pollGitHubCopilotOAuthDevice(
+  oauthSessionId: string,
+  options?: { signal?: AbortSignal }
+): Promise<GitHubCopilotOAuthDevicePollResponse> {
+  const { data } = await apiClient.post<GitHubCopilotOAuthDevicePollResponse>(
+    '/admin/accounts/github-copilot/oauth/device/poll',
+    { oauth_session_id: oauthSessionId },
+    { signal: options?.signal }
+  )
+  return data
+}
+
 /**
  * Update account
  * @param id - Account ID
@@ -809,6 +883,9 @@ export const accountsAPI = {
   listWithEtag,
   getById,
   create,
+  getGitHubCopilotOAuthCapabilities,
+  startGitHubCopilotOAuthDevice,
+  pollGitHubCopilotOAuthDevice,
   update,
   checkMixedChannelRisk,
   delete: deleteAccount,

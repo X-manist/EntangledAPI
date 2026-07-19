@@ -400,6 +400,42 @@ export default {
         strictModels: 'Preset models',
         strictModelsHint:
           'Actual availability depends on the account subscription, organization policy, and upstream authorization.',
+        githubCopilot: {
+          methodLabel: 'Authorization method',
+          oauthMethod: 'Authorize GitHub',
+          manualMethod: 'Enter Token manually',
+          recommended: 'Recommended',
+          createPAT: 'Create a fine-grained PAT with Copilot Requests permission',
+          oauth: {
+            title: 'Authorize your GitHub account',
+            description:
+              'Use GitHub Device Flow to connect the account that owns your Copilot subscription.',
+            checking: 'Checking OAuth configuration…',
+            notConfigured:
+              'GitHub authorization is not configured for this installation. Configure a GitHub OAuth App with Device Flow enabled, or use a token instead.',
+            capabilitiesFailed: 'Could not check GitHub authorization availability.',
+            useManual: 'Switch to manual Token',
+            start: 'Authorize GitHub',
+            starting: 'Starting authorization…',
+            startFailed: 'Could not start GitHub authorization.',
+            enterCode: 'Enter this one-time code on GitHub:',
+            copyCode: 'Copy one-time code',
+            openGitHub: 'Open GitHub',
+            waiting: 'Waiting for GitHub authorization. This page updates automatically.',
+            authorized: 'GitHub authorization complete',
+            authorizedAs: "GitHub authorization complete: {'@'}{login}",
+            reauthorize: 'Authorize GitHub again',
+            tokenKeptOnServer:
+              'The OAuth token stays on the server. This browser only receives an opaque, short-lived session ID.',
+            expired: 'This authorization code has expired. Start again to get a new code.',
+            denied: 'GitHub authorization was cancelled or denied.',
+            entitlementRequired:
+              'This GitHub account does not have an available Copilot entitlement. Check its subscription and organization policy.',
+            failed: 'GitHub authorization failed.',
+            tryAgain: 'Try again',
+            authorizationRequired: 'Complete GitHub authorization before creating the account.'
+          }
+        },
         providers: {
           glm_coding_plan: {
             credential: 'GLM Coding Plan key',
@@ -418,7 +454,7 @@ export default {
           github_copilot: {
             credential: 'GitHub token',
             credentialRequired: 'GitHub token *',
-            placeholder: 'ghu_... or github_pat_...',
+            placeholder: 'gho_..., ghu_..., or github_pat_...',
             credentialHint:
               'A fine-grained PAT is recommended. Grant the target account Copilot Requests permission.',
             baseUrlHint: ''

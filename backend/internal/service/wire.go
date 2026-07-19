@@ -591,6 +591,8 @@ var ProviderSet = wire.NewSet(
 	ProvideBatchImageWorkerRuntime,
 	wire.Bind(new(AccountRuntimeBlocker), new(*OpenAIGatewayService)),
 	NewOAuthService,
+	NewGitHubCopilotOAuthService,
+	wire.Bind(new(GitHubCopilotOAuthSettings), new(*SettingService)),
 	ProvideOpenAIOAuthService,
 	NewGrokOAuthService,
 	NewGeminiOAuthService,
